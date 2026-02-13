@@ -1,0 +1,6 @@
+# Build artifacts
+webcam-fix/.swarm/
+webcam-fix/ruvector.db
+*.db
+*.db-shm
+*.db-wal
