@@ -30,9 +30,9 @@ The webcam works with **Firefox, Chromium, Zoom, Teams, OBS, mpv, VLC**, and mos
 
 ## What's Included
 
-### [Speaker Fix](speaker-fix/) — MAX98390 HDA Driver (DKMS)
+### [Speaker Fix](speaker-fix/) — MAX98390 HDA Driver (DKMS) — Output Only
 
-The internal speakers use 4x Maxim MAX98390 I2C amplifiers that have no kernel driver yet. This DKMS package provides the missing driver, based on [thesofproject/linux PR #5616](https://github.com/thesofproject/linux/pull/5616).
+The internal speakers use 4x Maxim MAX98390 I2C amplifiers that have no kernel driver yet. This DKMS package provides the missing driver, based on [thesofproject/linux PR #5616](https://github.com/thesofproject/linux/pull/5616). **Note:** This fix addresses speaker output only — it does not enable the built-in microphones (see [Microphone Status](#microphone-status) below).
 
 - Builds two kernel modules via DKMS (auto-rebuilds on kernel updates)
 - Creates I2C devices for the amplifiers on boot
@@ -46,6 +46,18 @@ The internal speakers use 4x Maxim MAX98390 I2C amplifiers that have no kernel d
 ### [Webcam Fix](webcam-fix/) — Intel IPU6 / OV02C10
 
 The built-in webcam uses Intel IPU6 (Meteor Lake) with an OmniVision OV02C10 sensor. Five separate issues prevent it from working reliably: IVSC modules don't auto-load, IVSC/sensor boot race condition causing intermittent black frames, missing camera HAL, v4l2loopback name mismatch, and PipeWire device misclassification. The fix includes adding IVSC modules to the initramfs (eliminating the boot race) and hardening the relay service with auto-restart.
+
+## Microphone Status
+
+The Galaxy Book4 has built-in dual array digital microphones (DMIC), but **they do not currently work on Linux**. Neither the speaker fix nor the webcam fix addresses this — it's a separate issue.
+
+**Why:** The speaker fix uses the legacy `snd_hda_intel` audio driver, which only exposes the Realtek ALC298 analog codec. The built-in microphones are digital (connected via Intel DMIC/SoundWire), which requires the SOF (Sound Open Firmware) DSP driver to function. Switching to SOF would break the current speaker fix, since the MAX98390 HDA driver is designed for the legacy HDA path.
+
+**When will it be fixed?** The [SOF upstream PR #5616](https://github.com/thesofproject/linux/pull/5616) is building native SOF support for Galaxy Book4 that will handle both speakers and DMIC together. This is expected to land in **Linux kernel 7.0 (mid-April 2026)** or **7.1 (June 2026)**. Once that ships in your distro kernel, the speaker fix in this repo will auto-detect native support and remove itself, and the built-in microphones should work automatically.
+
+**Workarounds for now:**
+- Use a **USB headset or microphone** — works immediately, no configuration needed
+- Use the **3.5mm headphone/mic combo jack** — the external mic input (ALC298 Node 0x18) is functional
 
 ## Tested On
 
@@ -61,6 +73,7 @@ The upstream speaker PR (#5616) was also confirmed working on Galaxy Book4 Pro, 
 | Speaker Amps | 4x MAX98390 on I2C (`0x38`, `0x39`, `0x3c`, `0x3d`) |
 | Camera ISP | Intel IPU6 Meteor Lake (`8086:7d19`) |
 | Camera Sensor | OmniVision OV02C10 (`OVTI02C1`) |
+| Microphones | Dual array DMIC (digital, not working — requires SOF driver) |
 
 ## Credits
 
