@@ -1,6 +1,6 @@
-# Fix: Samsung Galaxy Book4 Webcam on Ubuntu 24.04 (Intel IPU6 / OV02C10 / Meteor Lake)
+# Fix: Samsung Galaxy Book4 Webcam on Ubuntu (Intel IPU6 / OV02C10 / Meteor Lake)
 
-> **Meteor Lake (Galaxy Book4) only.** This fix does **not** support Lunar Lake (Galaxy Book5) — those models use Intel IPU7, which has a completely different camera driver stack. The install script will detect Lunar Lake and show a helpful message. See [Compatibility](#compatibility) below.
+> **Meteor Lake (Galaxy Book4) + Ubuntu only.** This fix does **not** support Lunar Lake (Galaxy Book5) — those models use Intel IPU7, which has a completely different camera driver stack. It also requires **Ubuntu or Ubuntu-based distros** (apt, PPA packages, initramfs-tools) — Fedora and Arch are not yet supported. The install script will detect unsupported hardware and show a helpful message. See [Compatibility](#compatibility) below.
 
 **Tested on:** Samsung Galaxy Book4 Ultra, Ubuntu 24.04 LTS, Kernel 6.17.0-14-generic (HWE)
 **Date:** February 2026
@@ -452,7 +452,7 @@ The IPU6 device nodes have restricted permissions. The v4l2-relayd service runs 
 This fix works for any laptop with:
 - Intel IPU6 on **Meteor Lake** (PCI ID `8086:7d19`)
 - **OV02C10** camera sensor
-- Ubuntu 24.04 with HWE kernel 6.17+
+- **Ubuntu or Ubuntu-based distro** (apt, initramfs-tools) with kernel 6.17+
 
 This includes Samsung Galaxy Book4 Ultra, Pro, Pro 360, and possibly other Meteor Lake laptops (Dell, Lenovo, etc.) with the same sensor. The core issue — IVSC modules not auto-loading — is not Samsung-specific.
 

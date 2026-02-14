@@ -1,6 +1,8 @@
 # Samsung Galaxy Book4 Linux Fixes
 
-Fixes for hardware that doesn't work out of the box on Linux (Ubuntu 24.04+) on Samsung Galaxy Book4 laptops. Tested on the **Galaxy Book4 Ultra** — should also work on Pro, Pro 360, and Book5 models with the same hardware, but only the Ultra has been directly verified.
+Fixes for hardware that doesn't work out of the box on Linux on Samsung Galaxy Book4/5 laptops. Tested on the **Galaxy Book4 Ultra** — should also work on Pro, Pro 360, and Book5 models with the same hardware, but only the Ultra has been directly verified.
+
+> **Distro support:** The **speaker fix** works on Ubuntu, Fedora, and any distro with DKMS support (Arch-based distros need manual prereqs — see [speaker-fix README](speaker-fix/)). The **webcam fix** currently requires **Ubuntu or Ubuntu-based distros** (uses apt, PPA packages, and initramfs-tools). Fedora and Arch are not yet supported for the webcam fix.
 
 > **Disclaimer:** These fixes involve loading kernel modules and running scripts with root privileges. While they are designed to be safe and reversible (both include uninstall steps), they are provided **as-is with no warranty**. Modifying kernel modules carries inherent risk — in rare cases, incompatible drivers could cause boot issues or system instability. **Use at your own risk.** It is recommended to have a recent backup and know how to access recovery mode before proceeding.
 
@@ -18,9 +20,11 @@ curl -sL https://github.com/Andycodeman/samsung-galaxy-book4-linux-fixes/archive
 
 To uninstall: `sudo ./uninstall.sh && sudo reboot`
 
-### Webcam Fix (built-in camera not detected) — Meteor Lake / Galaxy Book4 only
+### Webcam Fix (built-in camera not detected) — Meteor Lake / Galaxy Book4 / Ubuntu only
 
 > **Lunar Lake (Galaxy Book5) not supported:** This webcam fix is for **Meteor Lake (IPU6)** systems only — Galaxy Book4 models. Galaxy Book5 models use **Lunar Lake (IPU7)**, which has a completely different camera driver stack. The install script will detect Lunar Lake and show a helpful message. Lunar Lake webcam support is being tracked upstream at [intel/ipu6-drivers](https://github.com/intel/ipu6-drivers).
+
+> **Ubuntu only:** The webcam fix requires Ubuntu or Ubuntu-based distros (apt, PPA packages, initramfs-tools). Fedora and Arch-based distros are not currently supported.
 
 ```bash
 curl -sL https://github.com/Andycodeman/samsung-galaxy-book4-linux-fixes/archive/refs/heads/main.tar.gz | tar xz && cd samsung-galaxy-book4-linux-fixes-main/webcam-fix && ./install.sh && sudo reboot
@@ -49,11 +53,11 @@ The internal speakers use 4x Maxim MAX98390 I2C amplifiers that have no kernel d
 
 > **Fedora / DNF-based distros:** The install script auto-detects Fedora and configures DKMS module signing using the akmods MOK key (`/etc/pki/akmods/`). If no key exists, it generates one with `kmodgenca` and prompts for enrollment. Confirmed working on Fedora 43, kernel 6.18.9 (Galaxy Book4 Ultra).
 
-### [Webcam Fix](webcam-fix/) — Intel IPU6 / OV02C10 (Meteor Lake only)
+### [Webcam Fix](webcam-fix/) — Intel IPU6 / OV02C10 (Meteor Lake + Ubuntu only)
 
 The built-in webcam uses Intel IPU6 (Meteor Lake) with an OmniVision OV02C10 sensor. Five separate issues prevent it from working reliably: IVSC modules don't auto-load, IVSC/sensor boot race condition causing intermittent black frames, missing camera HAL, v4l2loopback name mismatch, and PipeWire device misclassification. The fix includes adding IVSC modules to the initramfs (eliminating the boot race) and hardening the relay service with auto-restart.
 
-> **Note:** This webcam fix only supports **Meteor Lake (IPU6)** — Galaxy Book4 models. Galaxy Book5 models use **Lunar Lake (IPU7)**, which has a completely different camera driver and is not supported by this fix.
+> **Note:** This webcam fix only supports **Meteor Lake (IPU6)** on **Ubuntu (and Ubuntu-based distros)**. Galaxy Book5 (Lunar Lake / IPU7) is not supported (different driver stack). Fedora and Arch-based distros are not yet supported (the install script uses apt, Ubuntu PPAs, and initramfs-tools).
 
 ## Microphone Status
 
