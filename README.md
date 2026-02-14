@@ -84,6 +84,7 @@ The Galaxy Book4/5 laptops have built-in dual array digital microphones (DMIC). 
 
 - **Samsung Galaxy Book4 Ultra** — Ubuntu 24.04 LTS, kernel 6.17.0-14-generic (HWE)
 - **Samsung Galaxy Book4 Ultra** — Fedora 43, kernel 6.18.9 (community-confirmed)
+- **Samsung Galaxy Book4 Pro** — Ubuntu 25.10, kernel 6.18.7, speaker fix confirmed (community-confirmed)
 - **Samsung Galaxy Book5 Pro** — Speaker fix confirmed working, mic continues to work (community-confirmed)
 
 The upstream speaker PR (#5616) was also confirmed working on Galaxy Book4 Pro, Pro 360, and Book4 Pro 16-inch by other users, so this fix should work on those models too. If you try it on another model or distro, please report back.
