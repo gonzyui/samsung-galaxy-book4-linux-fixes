@@ -10,6 +10,8 @@ Each fix can be downloaded and installed in a single command — no git required
 
 ### Speaker Fix (no sound from built-in speakers)
 
+> **Microphone warning:** This fix uses the legacy HDA audio driver, which does not support the built-in digital microphones (DMIC). On some models (e.g., Galaxy Book5 Pro 360 on Lunar Lake), the DMIC may already work under the default SOF driver — installing this speaker fix will disable it. If your internal mic currently works, you will lose it. See [Microphone Status](#microphone-status) for details.
+
 ```bash
 curl -sL https://github.com/Andycodeman/samsung-galaxy-book4-linux-fixes/archive/refs/heads/main.tar.gz | tar xz && cd samsung-galaxy-book4-linux-fixes-main/speaker-fix && sudo ./install.sh && sudo reboot
 ```
@@ -49,11 +51,18 @@ The built-in webcam uses Intel IPU6 (Meteor Lake) with an OmniVision OV02C10 sen
 
 ## Microphone Status
 
-The Galaxy Book4 has built-in dual array digital microphones (DMIC), but **they do not currently work on Linux**. Neither the speaker fix nor the webcam fix addresses this — it's a separate issue.
+The Galaxy Book4/5 laptops have built-in dual array digital microphones (DMIC). Whether they work on Linux **depends on your model and audio driver**:
 
-**Why:** The speaker fix uses the legacy `snd_hda_intel` audio driver, which only exposes the Realtek ALC298 analog codec. The built-in microphones are digital (connected via Intel DMIC/SoundWire), which requires the SOF (Sound Open Firmware) DSP driver to function. Switching to SOF would break the current speaker fix, since the MAX98390 HDA driver is designed for the legacy HDA path.
+| Model | Platform | Default Driver | Mic (without speaker fix) | Mic (with speaker fix) |
+|-------|----------|---------------|--------------------------|----------------------|
+| Book4 Ultra | Meteor Lake | Legacy HDA | No | No |
+| Book4 Pro / Pro 360 | Meteor Lake | Legacy HDA | Unknown | No |
+| Book5 Pro 360 | Lunar Lake | SOF | **Yes** | **No — speaker fix disables it** |
+| Book5 Pro 14" | Lunar Lake | SOF | Varies by report | No |
 
-**When will it be fixed?** The [SOF upstream PR #5616](https://github.com/thesofproject/linux/pull/5616) is building native SOF support for Galaxy Book4 that will handle both speakers and DMIC together. This is expected to land in **Linux kernel 7.0 (mid-April 2026)** or **7.1 (June 2026)**. Once that ships in your distro kernel, the speaker fix in this repo will auto-detect native support and remove itself, and the built-in microphones should work automatically.
+**Why the speaker fix affects the mic:** The speaker fix uses the legacy `snd_hda_intel` audio driver, which only exposes the Realtek ALC298 analog codec. The built-in DMIC requires the SOF (Sound Open Firmware) DSP driver. On Lunar Lake models (Book5 series) where SOF is the default driver, the DMIC may already work — but installing this speaker fix switches to legacy HDA, which disables it.
+
+**When will both work together?** The [SOF upstream PR #5616](https://github.com/thesofproject/linux/pull/5616) is building native SOF support for Galaxy Book4/5 that will handle both speakers and DMIC together. This is expected to land in **Linux kernel 7.0 (mid-April 2026)** or **7.1 (June 2026)**. Once that ships in your distro kernel, the speaker fix in this repo will auto-detect native support and remove itself, and the built-in microphones should work automatically.
 
 **Workarounds for now:**
 - Use a **USB headset or microphone** — works immediately, no configuration needed
@@ -73,7 +82,7 @@ The upstream speaker PR (#5616) was also confirmed working on Galaxy Book4 Pro, 
 | Speaker Amps | 4x MAX98390 on I2C (`0x38`, `0x39`, `0x3c`, `0x3d`) |
 | Camera ISP | Intel IPU6 Meteor Lake (`8086:7d19`) |
 | Camera Sensor | OmniVision OV02C10 (`OVTI02C1`) |
-| Microphones | Dual array DMIC (digital, not working — requires SOF driver) |
+| Microphones | Dual array DMIC (digital — status varies by model, see [Microphone Status](#microphone-status)) |
 
 ## Credits
 
