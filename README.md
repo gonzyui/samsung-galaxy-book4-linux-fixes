@@ -2,7 +2,7 @@
 
 Fixes for hardware that doesn't work out of the box on Linux on Samsung Galaxy Book4/5 laptops. Tested on the **Galaxy Book4 Ultra** — should also work on Pro, Pro 360, and Book5 models with the same hardware, but only the Ultra has been directly verified.
 
-> **Distro support:** The **speaker fix** works on Ubuntu, Fedora, and any distro with DKMS support (Arch-based distros need manual prereqs — see [speaker-fix README](speaker-fix/)). The **webcam fix** currently requires **Ubuntu or Ubuntu-based distros** (uses apt, PPA packages, and initramfs-tools). Fedora and Arch are not yet supported for the webcam fix.
+> **Distro support:** The **speaker fix** works on Ubuntu, Fedora, and Arch-based distros (CachyOS, Manjaro, etc. — `dkms` and `linux-headers` must be installed first, see [speaker-fix README](speaker-fix/)). The **webcam fix** currently requires **Ubuntu or Ubuntu-based distros** (uses apt, PPA packages, and initramfs-tools). Fedora and Arch are not yet supported for the webcam fix.
 
 > **Disclaimer:** These fixes involve loading kernel modules and running scripts with root privileges. While they are designed to be safe and reversible (both include uninstall steps), they are provided **as-is with no warranty**. Modifying kernel modules carries inherent risk — in rare cases, incompatible drivers could cause boot issues or system instability. **Use at your own risk.** It is recommended to have a recent backup and know how to access recovery mode before proceeding.
 

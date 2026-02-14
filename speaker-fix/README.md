@@ -93,7 +93,7 @@ sudo dnf install dkms kernel-devel
 sudo pacman -S dkms linux-headers i2c-tools
 ```
 
-> **Arch-based distros:** The install script auto-detects `apt` and `dnf` but does not yet auto-install packages via `pacman`. Install the prerequisites above manually before running the install script. The DKMS build, systemd services, and module autoload will all work normally.
+> **Arch-based distros:** The install script auto-detects `pacman` and will auto-install `i2c-tools` if missing. However, `dkms` and `linux-headers` must be installed manually before running the script (the correct headers package depends on your kernel — e.g., `linux-headers` for the default kernel, `linux-lts-headers` for LTS, `linux-zen-headers` for Zen).
 
 ### Install
 
