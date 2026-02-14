@@ -22,6 +22,9 @@ fi
 if command -v dnf >/dev/null 2>&1; then
     PKG_MGR="dnf"
     PKG_INSTALL="dnf install -y"
+elif command -v pacman >/dev/null 2>&1; then
+    PKG_MGR="pacman"
+    PKG_INSTALL="pacman -S --noconfirm"
 elif command -v apt-get >/dev/null 2>&1; then
     PKG_MGR="apt"
     PKG_INSTALL="apt-get install -y"
@@ -33,7 +36,9 @@ fi
 # Check prerequisites
 if ! command -v dkms >/dev/null 2>&1; then
     if [ "$PKG_MGR" = "dnf" ]; then
-        echo "ERROR: dkms not installed. Run: sudo dnf install dkms" >&2
+        echo "ERROR: dkms not installed. Run: sudo dnf install dkms kernel-devel" >&2
+    elif [ "$PKG_MGR" = "pacman" ]; then
+        echo "ERROR: dkms not installed. Run: sudo pacman -S dkms linux-headers i2c-tools" >&2
     else
         echo "ERROR: dkms not installed. Run: sudo apt install dkms" >&2
     fi
