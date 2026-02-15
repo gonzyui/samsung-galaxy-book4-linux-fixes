@@ -267,7 +267,7 @@ EasyEffects runs in the background and applies effects to all audio output. It w
 
 ### When will it improve?
 
-The [upstream kernel fix (PR #5616)](https://github.com/thesofproject/linux/pull/5616) includes proper Realtek ALC298 codec configuration through the `alc298-samsung-max98390` quirk, which will improve baseline audio quality with correct mixer levels and output routing. This is expected in **kernel 7.0 or 7.1**. However, matching Windows' full DSP stack would require Samsung to release Linux audio software, which is unlikely in the near term.
+The [upstream kernel fix (PR #5616)](https://github.com/thesofproject/linux/pull/5616) includes proper Realtek ALC298 codec configuration through the `alc298-samsung-max98390` quirk, which will improve baseline audio quality with correct mixer levels and output routing. The PR is still open and hasn't been merged yet — there is no confirmed timeline, but it could potentially land in a future kernel release (7.0+) once reviewed and accepted upstream. However, even with the upstream fix, matching Windows' full DSP stack would require Samsung to release Linux audio software, which is unlikely in the near term.
 
 ## Troubleshooting
 
