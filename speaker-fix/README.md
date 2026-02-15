@@ -236,13 +236,34 @@ sudo dnf install easyeffects
 sudo pacman -S easyeffects
 ```
 
-After installing, open EasyEffects and try:
+The Bass Enhancer effect requires Calf Studio Gear — install it if EasyEffects shows "Bass Enhancer Not Available":
 
-1. **Bass boost** — Add a Bass Enhancer or use the Equalizer to boost frequencies below 200Hz
-2. **Loudness equalization** — Helps compensate for the lower perceived volume
-3. **Community presets** — Search for "laptop speaker" presets in the [EasyEffects Presets](https://github.com/Digitalone1/EasyEffects-Presets) community repo or similar
+```bash
+# Ubuntu / Debian
+sudo apt install calf-plugins
 
-EasyEffects runs in the background and applies effects to all audio output. It won't perfectly match Windows' Dolby Atmos processing, but it makes a significant difference.
+# Fedora
+sudo dnf install calf-plugins
+
+# Arch / CachyOS / Manjaro
+sudo pacman -S calf
+```
+
+#### Recommended: JackHack96 presets
+
+The [JackHack96 EasyEffects Presets](https://github.com/JackHack96/EasyEffects-Presets) collection includes several presets tuned for different use cases. Install them all:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/JackHack96/EasyEffects-Presets/master/install.sh)"
+```
+
+After installing, open EasyEffects and select a preset from the **Presets** dropdown (top-left). Personal preference varies, but the **"Advanced Auto Gain"** preset does a good job toning down the highs and allowing the bass to come through more, resulting in a more evenly distributed sound on these laptop speakers. Other presets to try:
+
+- **Laptop** — Tuned specifically for laptop speakers
+- **Loudness + Autogain Laptop** — Compensates for lower perceived volume
+- **Bass Enhancing + Perfect EQ** — More aggressive bass boost
+
+EasyEffects runs in the background and applies effects to all audio output. It won't perfectly match Windows' Dolby Atmos processing, but it makes a noticeable difference.
 
 ### When will it improve?
 
