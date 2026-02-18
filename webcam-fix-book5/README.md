@@ -117,7 +117,7 @@ Sensor-specific IPA (Image Processing Algorithm) tuning files may not exist yet 
 
 ### Vertically flipped image
 
-Some setups produce an upside-down camera preview. This is a sensor orientation / libcamera tuning issue — the rotation metadata for the OV02C10 on some platforms may be incorrect or missing.
+Some setups produce an upside-down camera preview. This affects both the installer setup and native Fedora 43 (reported on Book5 Pro 940XHA), so it is not caused by this script. This is a sensor orientation / libcamera tuning issue — the rotation metadata for the OV02C10/OV02E10 on some platforms may be incorrect or missing.
 
 ### Firefox / browser conflicts with qcam
 
@@ -143,7 +143,8 @@ If that doesn't help, verify that `pipewire-libcamera` (Arch) or `pipewire-plugi
 | Lenovo X1 Carbon Gen13 | Lunar Lake | Fedora 42 | 6.18+ | Working | Confirmed by community |
 | Samsung Galaxy Book5 360 | Lunar Lake | Fedora 42 | 6.18+ | Working (browsers) | Community report |
 | Samsung Galaxy Book5 360 | Lunar Lake | Ubuntu 24.04 | 6.19.2 | Working (qcam) | OV02E10 sensor. Image flipped, Firefox conflict. Kernel + libcamera from source. |
-| Samsung Galaxy Book5 Pro | Lunar Lake | — | — | **UNTESTED** | Please report if you try |
+| Samsung Galaxy Book5 Pro (940XHA) | Lunar Lake | Fedora 43 | latest | Working (natively) | OV02E10 sensor. Works without installer. Image vertically flipped. |
+| Samsung Galaxy Book5 Pro | Lunar Lake | — | — | **UNTESTED** | Other distros — please report if you try |
 | Samsung Galaxy Book5 Pro 360 | Lunar Lake | — | — | **UNTESTED** | Please report if you try |
 
 **If you test this on a Galaxy Book5, please open an issue with:**
