@@ -1,12 +1,11 @@
-# Fix: Samsung Galaxy Book5 Webcam on Arch / Fedora (Intel IPU7 / OV02C10 / Lunar Lake)
+# Fix: Samsung Galaxy Book5 Webcam on Arch / Fedora / Ubuntu (Intel IPU7 / OV02C10 / Lunar Lake)
 
 > **!! EXPERIMENTAL — UNTESTED ON SAMSUNG HARDWARE — USE AT YOUR OWN RISK !!**
 >
 > This fix has **NOT been tested on any Samsung Galaxy Book5 model**. It is based on research from working setups on other Lunar Lake laptops (Dell XPS 13 9350, Lenovo X1 Carbon Gen13) and one unverified Book5 360 report on Fedora 42. **It may not work, may require manual adjustments, or could potentially cause system instability.** If you try it, please report your results so we can improve it.
 
 **Status:** Experimental / Community testing
-**Supported distros:** Arch-based (CachyOS, Manjaro, EndeavourOS) and Fedora 42+
-**Not supported:** Ubuntu (packages not yet available in PPAs)
+**Supported distros:** Arch-based (CachyOS, Manjaro, EndeavourOS), Fedora 42+, and Ubuntu (with libcamera 0.6+ built from source)
 **Hardware:** Intel IPU7 (Lunar Lake, PCI ID `8086:645d` or `8086:6457`), OV02C10 sensor (`OVTI02C1`)
 
 ---
@@ -46,7 +45,7 @@ Intel IPU7  →  OV02C10 sensor  →  libcamera  →  PipeWire  →  Application
 |--------|--------|-------|
 | **Arch / CachyOS / Manjaro** | Supported | libcamera 0.6+ in repos |
 | **Fedora 42+** | Supported | libcamera 0.6+ in repos |
-| **Ubuntu** | Not supported | libcamera + IPU7 packages not yet in PPAs |
+| **Ubuntu** | Supported (with manual steps) | Requires libcamera 0.6+ built from source and kernel 6.18+ compiled manually. See [Ubuntu instructions](#ubuntu-specific-setup) below. |
 
 ---
 
@@ -54,7 +53,21 @@ Intel IPU7  →  OV02C10 sensor  →  libcamera  →  PipeWire  →  Application
 
 - **Kernel 6.18+** — IPU7, USBIO, and OV02C10 drivers are all in-tree starting from 6.18
 - **Lunar Lake hardware** — Intel IPU7 (PCI ID `8086:645d` or `8086:6457`)
+- **libcamera 0.6+** — Available in Arch/Fedora repos; must be built from source on Ubuntu
 - **Internet connection** — To download the intel_cvs DKMS module from GitHub
+
+---
+
+## Ubuntu-Specific Setup
+
+Ubuntu 24.04 ships kernel 6.17 and libcamera 0.2.x — both too old for IPU7. To use this fix on Ubuntu, you need to manually provide:
+
+1. **Kernel 6.18+** — Compile from source or install a [mainline kernel build](https://kernel.ubuntu.com/mainline/). One user confirmed kernel 6.19.2 works.
+2. **libcamera 0.6+** — Build from source following the [libcamera getting started guide](https://libcamera.org/getting-started.html). Ubuntu's apt packages are too old.
+
+The installer will detect Ubuntu and **check your libcamera version** at runtime. If libcamera 0.6+ is found (however you installed it), the script will proceed — it skips the package install step and only sets up the DKMS module and configuration files.
+
+**Reference:** The [Arch Wiki Dell XPS 13 9350 camera page](https://wiki.archlinux.org/title/Dell_XPS_13_(9350)_2024#Camera) has a detailed walkthrough for the same hardware. The steps can be adapted for Ubuntu.
 
 ---
 
@@ -104,6 +117,14 @@ IPU7 + libcamera may produce a green tint or incorrect white balance. This is be
 
 Sensor-specific IPA (Image Processing Algorithm) tuning files may not exist yet for the OV02C10 on IPU7. libcamera will use defaults, which may result in suboptimal image quality.
 
+### Vertically flipped image
+
+Some setups produce an upside-down camera preview. This is a sensor orientation / libcamera tuning issue — the rotation metadata for the OV02C10 on some platforms may be incorrect or missing.
+
+### Firefox / browser conflicts with qcam
+
+One user reported that opening the camera in Firefox kills the image in qcam, requiring a reboot to recover. This appears to be a resource contention issue between PipeWire and direct libcamera access. Avoid running qcam and browser-based camera access simultaneously.
+
 ### PipeWire doesn't see the camera
 
 If the camera works with `cam -l` but PipeWire apps don't see it:
@@ -112,19 +133,20 @@ If the camera works with `cam -l` but PipeWire apps don't see it:
 systemctl --user restart pipewire wireplumber
 ```
 
-If that doesn't help, verify that `pipewire-libcamera` (Arch) or `pipewire-plugin-libcamera` (Fedora) is installed.
+If that doesn't help, verify that `pipewire-libcamera` (Arch) or `pipewire-plugin-libcamera` (Fedora) is installed. On Ubuntu, you may need to build the PipeWire libcamera SPA plugin from source.
 
 ---
 
 ## Tested Hardware
 
-| Device | Platform | Distro | Status | Notes |
-|--------|----------|--------|--------|-------|
-| Dell XPS 13 9350 | Lunar Lake | Arch | Working | Same OV02C10 sensor |
-| Lenovo X1 Carbon Gen13 | Lunar Lake | Fedora 42 | Working | Confirmed by community |
-| Samsung Galaxy Book5 360 | Lunar Lake | Fedora 42 | Reported working (browsers) | Unverified single report |
-| Samsung Galaxy Book5 Pro | Lunar Lake | — | **UNTESTED** | Please report if you try |
-| Samsung Galaxy Book5 Pro 360 | Lunar Lake | — | **UNTESTED** | Please report if you try |
+| Device | Platform | Distro | Kernel | Status | Notes |
+|--------|----------|--------|--------|--------|-------|
+| Dell XPS 13 9350 | Lunar Lake | Arch | 6.18+ | Working | Same OV02C10 sensor |
+| Lenovo X1 Carbon Gen13 | Lunar Lake | Fedora 42 | 6.18+ | Working | Confirmed by community |
+| Samsung Galaxy Book5 360 | Lunar Lake | Fedora 42 | 6.18+ | Working (browsers) | Community report |
+| Samsung Galaxy Book5 360 | Lunar Lake | Ubuntu 24.04 | 6.19.2 | Working (qcam) | Image flipped, Firefox conflict. Kernel + libcamera built from source. |
+| Samsung Galaxy Book5 Pro | Lunar Lake | — | — | **UNTESTED** | Please report if you try |
+| Samsung Galaxy Book5 Pro 360 | Lunar Lake | — | — | **UNTESTED** | Please report if you try |
 
 **If you test this on a Galaxy Book5, please open an issue with:**
 - Your exact model
@@ -144,7 +166,7 @@ If that doesn't help, verify that `pipewire-libcamera` (Arch) or `pipewire-plugi
 | **PipeWire bridge** | v4l2loopback + v4l2-relayd | pipewire-libcamera (direct) |
 | **Out-of-tree module** | None (IVSC modules are in-tree) | `intel_cvs` via DKMS |
 | **Initramfs changes** | Yes (IVSC boot race fix) | No |
-| **Supported distros** | Ubuntu only | Arch and Fedora |
+| **Supported distros** | Ubuntu only | Arch, Fedora, Ubuntu (source build) |
 | **Maturity** | Tested and confirmed | Experimental |
 | **Directory** | `webcam-fix/` | `webcam-fix-book5/` |
 
@@ -180,6 +202,7 @@ All files are removed by `uninstall.sh`.
 - Ensure kernel headers are installed:
   - Arch: `sudo pacman -S linux-headers`
   - Fedora: `sudo dnf install kernel-devel`
+  - Ubuntu: `sudo apt install linux-headers-$(uname -r)`
 - Check DKMS build log: `cat /var/lib/dkms/vision-driver/1.0.0/build/make.log`
 
 ### Secure Boot: module not loading
@@ -204,6 +227,7 @@ On Arch with Secure Boot, you'll need to sign the module manually or use a tool 
 ## Related Resources
 
 - [Intel vision-drivers (CVS module)](https://github.com/intel/vision-drivers)
+- [Arch Wiki — Dell XPS 13 9350 Camera](https://wiki.archlinux.org/title/Dell_XPS_13_(9350)_2024#Camera) — Same Lunar Lake + OV02C10 setup
 - [libcamera documentation](https://libcamera.org/docs.html)
 - [Samsung Galaxy Book Extras (platform driver)](https://github.com/joshuagrisham/samsung-galaxybook-extras)
 - [Speaker fix (Galaxy Book4/5)](../speaker-fix/) — MAX98390 HDA driver (DKMS)

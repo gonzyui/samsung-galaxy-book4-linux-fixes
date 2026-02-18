@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh
-# Samsung Galaxy Book5 webcam fix for Arch and Fedora
+# Samsung Galaxy Book5 webcam fix for Arch, Fedora, and Ubuntu (with custom libcamera)
 # For Lunar Lake (IPU7) with OV02C10 sensor
 #
 # Root cause: IPU7 on Lunar Lake requires the intel_cvs (Computer Vision
@@ -32,7 +32,7 @@ FORCE=false
 
 echo "=============================================="
 echo "  Samsung Galaxy Book5 Webcam Fix"
-echo "  Arch / Fedora — Lunar Lake (IPU7)"
+echo "  Arch / Fedora / Ubuntu — Lunar Lake (IPU7)"
 echo ""
 echo "  *** EXPERIMENTAL — USE AT YOUR OWN RISK ***"
 echo "=============================================="
@@ -57,16 +57,36 @@ elif command -v dnf >/dev/null 2>&1; then
     DISTRO="fedora"
     echo "  ✓ Fedora detected"
 elif command -v apt >/dev/null 2>&1; then
-    echo "ERROR: Ubuntu / apt-based distros are not supported by this script."
-    echo ""
-    echo "       The IPU7 + libcamera pipeline requires packages not yet available"
-    echo "       in Ubuntu PPAs. Arch and Fedora have libcamera 0.6+ in their repos."
-    echo ""
-    echo "       If you have a Galaxy Book4 (Meteor Lake / IPU6), use the webcam-fix/"
-    echo "       directory instead — that one supports Ubuntu."
-    exit 1
+    DISTRO="ubuntu"
+    # Ubuntu doesn't ship libcamera 0.6+ (needed for IPU7) in its repos.
+    # But users who build libcamera from source can still use this script.
+    LIBCAMERA_VER=$(cam --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1 || true)
+    if [[ -z "$LIBCAMERA_VER" ]]; then
+        echo "ERROR: Ubuntu detected but libcamera is not installed."
+        echo ""
+        echo "       Ubuntu's repos ship libcamera 0.2.x which does NOT support IPU7."
+        echo "       You need libcamera 0.6+ built from source."
+        echo ""
+        echo "       Build instructions: https://libcamera.org/getting-started.html"
+        echo "       Reference: https://wiki.archlinux.org/title/Dell_XPS_13_(9350)_2024#Camera"
+        echo ""
+        echo "       If you have a Galaxy Book4 (Meteor Lake / IPU6), use the webcam-fix/"
+        echo "       directory instead — that one supports Ubuntu natively."
+        exit 1
+    fi
+    LIBCAMERA_MAJOR=$(echo "$LIBCAMERA_VER" | cut -d. -f1)
+    LIBCAMERA_MINOR=$(echo "$LIBCAMERA_VER" | cut -d. -f2)
+    if [[ "$LIBCAMERA_MAJOR" -eq 0 ]] && [[ "$LIBCAMERA_MINOR" -lt 6 ]]; then
+        echo "ERROR: libcamera ${LIBCAMERA_VER} is too old. IPU7 requires libcamera 0.6+."
+        echo ""
+        echo "       Ubuntu's repos ship an older version. You need to build 0.6+ from source."
+        echo "       Build instructions: https://libcamera.org/getting-started.html"
+        exit 1
+    fi
+    echo "  ✓ Ubuntu detected with libcamera ${LIBCAMERA_VER} (>= 0.6 required)"
+    echo "  ⚠ Ubuntu support is experimental — libcamera was not installed from repos"
 else
-    echo "ERROR: Unsupported distro. This script requires pacman (Arch) or dnf (Fedora)."
+    echo "ERROR: Unsupported distro. This script requires pacman (Arch), dnf (Fedora), or apt (Ubuntu)."
     exit 1
 fi
 
@@ -134,8 +154,11 @@ if [[ "$KMAJOR" -lt 6 ]] || { [[ "$KMAJOR" -eq 6 ]] && [[ "$KMINOR" -lt 18 ]]; }
     echo "       Kernel 6.18 includes in-tree IPU7, USBIO, and OV02C10 drivers."
     if [[ "$DISTRO" == "arch" ]]; then
         echo "       Update your kernel: sudo pacman -Syu"
-    else
+    elif [[ "$DISTRO" == "fedora" ]]; then
         echo "       Update your kernel: sudo dnf upgrade --refresh"
+    else
+        echo "       Ubuntu 24.04 ships kernel 6.17. You need to compile 6.18+ from source"
+        echo "       or install a mainline kernel build."
     fi
     exit 1
 fi
@@ -190,6 +213,27 @@ elif [[ "$DISTRO" == "fedora" ]]; then
     if ! command -v dkms >/dev/null 2>&1; then
         echo "  Installing DKMS prerequisites..."
         sudo dnf install -y dkms kernel-devel
+    fi
+
+elif [[ "$DISTRO" == "ubuntu" ]]; then
+    # On Ubuntu, libcamera was already verified in step 2 (built from source).
+    # We only install DKMS prerequisites — do NOT install libcamera from apt
+    # (it's too old and would conflict with the source build).
+    echo "  ✓ libcamera already installed (from source)"
+
+    if ! command -v dkms >/dev/null 2>&1; then
+        echo "  Installing DKMS prerequisites..."
+        sudo apt install -y dkms linux-headers-$(uname -r)
+    fi
+
+    # Check for pipewire-libcamera SPA plugin
+    if ! find /usr/lib /usr/local/lib -path "*/spa-*/libcamera*" -name "*.so" 2>/dev/null | grep -q .; then
+        echo "  ⚠ pipewire-libcamera SPA plugin not found."
+        echo "    PipeWire apps (Firefox, Zoom, etc.) may not see the camera."
+        echo "    You may need to build the PipeWire libcamera plugin from source,"
+        echo "    or use cam/qcam for direct libcamera access."
+    else
+        echo "  ✓ PipeWire libcamera plugin found"
     fi
 fi
 
@@ -319,15 +363,25 @@ echo ""
 echo "[8/10] Configuring libcamera environment..."
 
 # Determine IPA path based on distro
-if [[ "$DISTRO" == "arch" ]]; then
-    IPA_PATH="/usr/lib/libcamera/ipa"
-elif [[ "$DISTRO" == "fedora" ]]; then
+if [[ "$DISTRO" == "fedora" ]]; then
     # Fedora uses lib64
     if [[ -d "/usr/lib64/libcamera/ipa" ]]; then
         IPA_PATH="/usr/lib64/libcamera/ipa"
     else
         IPA_PATH="/usr/lib/libcamera/ipa"
     fi
+elif [[ "$DISTRO" == "ubuntu" ]]; then
+    # Source builds typically install to /usr/local/lib
+    if [[ -d "/usr/local/lib/libcamera/ipa" ]]; then
+        IPA_PATH="/usr/local/lib/libcamera/ipa"
+    elif [[ -d "/usr/local/lib/x86_64-linux-gnu/libcamera/ipa" ]]; then
+        IPA_PATH="/usr/local/lib/x86_64-linux-gnu/libcamera/ipa"
+    else
+        IPA_PATH="/usr/lib/libcamera/ipa"
+    fi
+else
+    # Arch and other
+    IPA_PATH="/usr/lib/libcamera/ipa"
 fi
 
 # systemd user environment
@@ -401,6 +455,10 @@ echo ""
 echo "  Known issues:"
 echo "    - Green tint: IPU7 calibration profiles may not exist for your sensor."
 echo "      This is a libcamera tuning issue, not a driver bug."
+echo "    - Vertically flipped image: Some setups show an upside-down preview."
+echo "      This is a sensor orientation / libcamera tuning issue."
+echo "    - Firefox may conflict with other libcamera apps (qcam). If the camera"
+echo "      stops working, try rebooting."
 echo "    - If PipeWire doesn't see the camera, try: systemctl --user restart pipewire"
 echo ""
 echo "  Configuration files created:"
