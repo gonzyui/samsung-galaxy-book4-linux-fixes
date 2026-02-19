@@ -115,7 +115,11 @@ Sensor-specific IPA (Image Processing Algorithm) tuning files may not exist yet 
 
 ### Vertically flipped image
 
-Some setups produce an upside-down camera preview. This affects both the installer setup and native Fedora 43 (reported on Book5 Pro 940XHA), so it is not caused by this script. This is a sensor orientation / libcamera tuning issue — the rotation metadata for the OV02C10/OV02E10 on some platforms may be incorrect or missing.
+Some Samsung Galaxy Book5 models (940XHA, 960XHA) have the OV02E10 sensor mounted upside-down, but Samsung's BIOS incorrectly reports `camera_sensor_rotation=0`. The installer now includes a **DKMS patched `ipu-bridge.ko`** that adds Samsung DMI quirk entries to the kernel's upside-down sensor table, so libcamera sets the correct flip controls automatically.
+
+**This fix is installed automatically** on affected Samsung models (940XHA, 960XHA). It will **auto-remove itself** when a future kernel includes the Samsung entries upstream. On non-Samsung systems, this step is skipped.
+
+If you still see a flipped image on a different model, the rotation metadata for that platform may be incorrect or missing.
 
 ### Firefox / browser conflicts with qcam
 
@@ -180,8 +184,11 @@ The install script creates these files:
 | `/etc/environment.d/libcamera-ipa.conf` | Set LIBCAMERA_IPA_MODULE_PATH (systemd sessions) |
 | `/etc/profile.d/libcamera-ipa.sh` | Set LIBCAMERA_IPA_MODULE_PATH (login shells) |
 | `/usr/src/vision-driver-1.0.0/` | DKMS source for intel_cvs module |
+| `/usr/src/ipu-bridge-fix-1.0/` | DKMS source for patched ipu-bridge (Samsung 940XHA/960XHA only) |
+| `/usr/local/sbin/ipu-bridge-check-upstream.sh` | Auto-removes ipu-bridge DKMS when upstream kernel has the fix |
+| `/etc/systemd/system/ipu-bridge-check-upstream.service` | Runs upstream check on boot |
 
-All files are removed by `uninstall.sh`.
+The ipu-bridge-fix files are only installed on Samsung 940XHA/960XHA models and auto-remove when the kernel includes the Samsung rotation entries. All files are removed by `uninstall.sh`.
 
 ---
 

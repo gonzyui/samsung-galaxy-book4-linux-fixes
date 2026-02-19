@@ -39,7 +39,7 @@ echo "=============================================="
 echo ""
 
 # ──────────────────────────────────────────────
-# [1/10] Root check
+# [1/11] Root check
 # ──────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     echo "ERROR: Don't run this as root. The script will use sudo where needed."
@@ -47,9 +47,9 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [2/10] Distro detection
+# [2/11] Distro detection
 # ──────────────────────────────────────────────
-echo "[2/10] Detecting distro..."
+echo "[2/11] Detecting distro..."
 if command -v pacman >/dev/null 2>&1; then
     DISTRO="arch"
     echo "  ✓ Arch-based distro detected"
@@ -94,10 +94,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [3/10] Hardware detection
+# [3/11] Hardware detection
 # ──────────────────────────────────────────────
 echo ""
-echo "[3/10] Verifying hardware..."
+echo "[3/11] Verifying hardware..."
 
 # Check for Lunar Lake IPU7
 IPU7_FOUND=false
@@ -148,10 +148,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [4/10] Kernel version check
+# [4/11] Kernel version check
 # ──────────────────────────────────────────────
 echo ""
-echo "[4/10] Checking kernel version..."
+echo "[4/11] Checking kernel version..."
 KVER=$(uname -r)
 KMAJOR=$(echo "$KVER" | cut -d. -f1)
 KMINOR=$(echo "$KVER" | cut -d. -f2)
@@ -173,10 +173,10 @@ fi
 echo "  ✓ Kernel ${KVER} (>= 6.18 required)"
 
 # ──────────────────────────────────────────────
-# [5/10] Install distro packages
+# [5/11] Install distro packages
 # ──────────────────────────────────────────────
 echo ""
-echo "[5/10] Installing required packages..."
+echo "[5/11] Installing required packages..."
 
 if [[ "$DISTRO" == "arch" ]]; then
     # Check what's missing
@@ -246,10 +246,10 @@ elif [[ "$DISTRO" == "ubuntu" ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [6/10] Build intel-vision-drivers via DKMS
+# [6/11] Build intel-vision-drivers via DKMS
 # ──────────────────────────────────────────────
 echo ""
-echo "[6/10] Installing intel_cvs module via DKMS..."
+echo "[6/11] Installing intel_cvs module via DKMS..."
 
 # Check if already installed and working
 if dkms status "vision-driver/${VISION_DRIVER_VER}" 2>/dev/null | grep -q "installed"; then
@@ -369,10 +369,105 @@ SIGNEOF
 fi
 
 # ──────────────────────────────────────────────
-# [7/10] Module load configuration
+# [7/11] Samsung camera rotation fix (ipu-bridge DKMS)
 # ──────────────────────────────────────────────
 echo ""
-echo "[7/10] Configuring module loading..."
+echo "[7/11] Installing ipu-bridge camera rotation fix..."
+
+# Samsung Galaxy Book5 Pro models (940XHA, 960XHA) have their OV02E10 sensor
+# mounted upside-down, but Samsung's BIOS reports rotation=0. The kernel's
+# ipu-bridge driver has a DMI quirk table for this, but the Samsung entries
+# aren't upstream yet. Ship a patched ipu-bridge.ko via DKMS until they are.
+
+# Only install on Samsung systems with known affected models
+NEEDS_ROTATION_FIX=false
+DMI_VENDOR=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
+DMI_PRODUCT=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
+if [[ "$DMI_VENDOR" == "SAMSUNG ELECTRONICS CO., LTD." ]]; then
+    case "$DMI_PRODUCT" in
+        940XHA|960XHA) NEEDS_ROTATION_FIX=true ;;
+    esac
+fi
+
+IPU_BRIDGE_FIX_VER="1.0"
+IPU_BRIDGE_FIX_SRC="/usr/src/ipu-bridge-fix-${IPU_BRIDGE_FIX_VER}"
+
+if $NEEDS_ROTATION_FIX; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    # Check if already installed and working
+    if dkms status "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}" 2>/dev/null | grep -q "installed"; then
+        echo "  ✓ ipu-bridge-fix/${IPU_BRIDGE_FIX_VER} already installed via DKMS"
+    else
+        # Check if the native kernel module already has the fix
+        NATIVE_IPU_BRIDGE=$(find "/lib/modules/$(uname -r)/kernel" -name "ipu-bridge*" 2>/dev/null | head -1)
+        UPSTREAM_HAS_FIX=false
+        if [ -n "$NATIVE_IPU_BRIDGE" ]; then
+            case "$NATIVE_IPU_BRIDGE" in
+                *.zst)  DECOMPRESS="zstdcat" ;;
+                *.xz)   DECOMPRESS="xzcat" ;;
+                *.gz)   DECOMPRESS="zcat" ;;
+                *)      DECOMPRESS="cat" ;;
+            esac
+            if $DECOMPRESS "$NATIVE_IPU_BRIDGE" 2>/dev/null | strings | grep -q "940XHA"; then
+                UPSTREAM_HAS_FIX=true
+            fi
+        fi
+
+        if $UPSTREAM_HAS_FIX; then
+            echo "  ✓ Native kernel ipu-bridge already has Samsung rotation fix — skipping DKMS"
+        else
+            # Remove old DKMS version if present
+            if dkms status "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}" 2>/dev/null | grep -q "ipu-bridge-fix"; then
+                sudo dkms remove "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}" --all 2>/dev/null || true
+            fi
+
+            # Copy source to DKMS tree
+            sudo rm -rf "$IPU_BRIDGE_FIX_SRC"
+            sudo mkdir -p "$IPU_BRIDGE_FIX_SRC"
+            sudo cp -a "$SCRIPT_DIR/ipu-bridge-fix/"* "$IPU_BRIDGE_FIX_SRC/"
+
+            # Secure Boot handling for Fedora (reuse key from step 6 if already set up)
+            if [[ "$DISTRO" == "fedora" ]] && mokutil --sb-state 2>/dev/null | grep -q "SecureBoot enabled"; then
+                MOK_KEY="/etc/pki/akmods/private/private_key.priv"
+                MOK_CERT="/etc/pki/akmods/certs/public_key.der"
+
+                if [[ -f "$MOK_KEY" ]] && [[ -f "$MOK_CERT" ]]; then
+                    # Ensure DKMS drop-in is present (may already exist from step 6)
+                    sudo mkdir -p /etc/dkms/framework.conf.d
+                    sudo tee /etc/dkms/framework.conf.d/akmods-keys.conf > /dev/null << SIGNEOF
+# Fedora akmods MOK key for Secure Boot module signing
+mok_signing_key=${MOK_KEY}
+mok_certificate=${MOK_CERT}
+SIGNEOF
+                fi
+            fi
+
+            # Register, build, install
+            echo "  Building ipu-bridge DKMS module..."
+            sudo dkms add "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}" 2>/dev/null || true
+            sudo dkms build "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}"
+            sudo dkms install "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}"
+            echo "  ✓ ipu-bridge-fix/${IPU_BRIDGE_FIX_VER} installed via DKMS"
+        fi
+    fi
+
+    # Install upstream check script and service
+    sudo cp "$SCRIPT_DIR/ipu-bridge-check-upstream.sh" /usr/local/sbin/ipu-bridge-check-upstream.sh
+    sudo chmod 755 /usr/local/sbin/ipu-bridge-check-upstream.sh
+    sudo cp "$SCRIPT_DIR/ipu-bridge-check-upstream.service" /etc/systemd/system/ipu-bridge-check-upstream.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable ipu-bridge-check-upstream.service
+    echo "  ✓ Upstream check service enabled (auto-removes fix when kernel catches up)"
+else
+    echo "  ✓ Not a Samsung 940XHA/960XHA — rotation fix not needed"
+fi
+
+# ──────────────────────────────────────────────
+# [8/11] Module load configuration
+# ──────────────────────────────────────────────
+echo ""
+echo "[8/11] Configuring module loading..."
 
 # The full module chain for IPU7 camera on Lunar Lake:
 # usb_ljca -> gpio_ljca -> intel_cvs -> ov02c10/ov02e10
@@ -402,10 +497,10 @@ EOF
 echo "  ✓ Created /etc/modprobe.d/intel-ipu7-camera.conf"
 
 # ──────────────────────────────────────────────
-# [8/10] libcamera IPA module path
+# [9/11] libcamera IPA module path
 # ──────────────────────────────────────────────
 echo ""
-echo "[8/10] Configuring libcamera environment..."
+echo "[9/11] Configuring libcamera environment..."
 
 # Determine IPA path based on distro
 if [[ "$DISTRO" == "fedora" ]]; then
@@ -443,10 +538,10 @@ EOF
 echo "  ✓ Created /etc/profile.d/libcamera-ipa.sh"
 
 # ──────────────────────────────────────────────
-# [9/10] Load modules and test
+# [10/11] Load modules and test
 # ──────────────────────────────────────────────
 echo ""
-echo "[9/10] Loading modules and testing..."
+echo "[10/11] Loading modules and testing..."
 
 # Try to load LJCA and intel_cvs now
 for mod in usb_ljca gpio_ljca; do
@@ -485,7 +580,7 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [10/10] Summary
+# [11/11] Summary
 # ──────────────────────────────────────────────
 echo ""
 echo "=============================================="
@@ -505,8 +600,8 @@ echo ""
 echo "  Known issues:"
 echo "    - Green tint: IPU7 calibration profiles may not exist for your sensor."
 echo "      This is a libcamera tuning issue, not a driver bug."
-echo "    - Vertically flipped image: Some setups show an upside-down preview."
-echo "      This is a sensor orientation / libcamera tuning issue."
+echo "    - Vertically flipped image: Fixed on Samsung 940XHA/960XHA via ipu-bridge"
+echo "      DKMS patch. Other models may still be affected."
 echo "    - Firefox may conflict with other libcamera apps (qcam). If the camera"
 echo "      stops working, try rebooting."
 echo "    - If PipeWire doesn't see the camera, try: systemctl --user restart pipewire"
@@ -517,6 +612,11 @@ echo "    /etc/modprobe.d/intel-ipu7-camera.conf"
 echo "    /etc/environment.d/libcamera-ipa.conf"
 echo "    /etc/profile.d/libcamera-ipa.sh"
 echo "    ${SRC_DIR}/ (DKMS source)"
+if [[ -d "$IPU_BRIDGE_FIX_SRC" ]]; then
+echo "    ${IPU_BRIDGE_FIX_SRC}/ (ipu-bridge rotation fix DKMS source)"
+echo "    /usr/local/sbin/ipu-bridge-check-upstream.sh"
+echo "    /etc/systemd/system/ipu-bridge-check-upstream.service"
+fi
 echo ""
 echo "  To uninstall: ./uninstall.sh"
 echo "=============================================="
