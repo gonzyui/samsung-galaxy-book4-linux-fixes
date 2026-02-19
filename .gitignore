@@ -19,3 +19,4 @@ package-lock.json
 
 # Misc artifacts
 cap_%d
+.devcortex

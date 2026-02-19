@@ -31,7 +31,7 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # Verify hardware
-echo "[1/11] Verifying hardware..."
+echo "[1/13] Verifying hardware..."
 if ! lspci -d 8086:7d19 2>/dev/null | grep -q .; then
     # Check if this is a Lunar Lake system (IPU7) — different driver, not supported
     if lspci 2>/dev/null | grep -qi "Lunar Lake.*IPU\|Intel.*IPU.*7" || \
@@ -67,7 +67,7 @@ echo "  ✓ IVSC firmware present"
 
 # Check kernel module availability
 echo ""
-echo "[2/11] Checking kernel modules..."
+echo "[2/13] Checking kernel modules..."
 MISSING_MODS=()
 for mod in mei-vsc mei-vsc-hw ivsc-ace ivsc-csi; do
     modpath=$(find /lib/modules/$(uname -r) -name "${mod//-/_}.ko*" -o -name "${mod}.ko*" 2>/dev/null | head -1)
@@ -88,7 +88,7 @@ echo "  ✓ All required kernel modules found"
 
 # Load and persist IVSC modules with correct boot ordering
 echo ""
-echo "[3/11] Loading IVSC kernel modules..."
+echo "[3/13] Loading IVSC kernel modules..."
 for mod in mei-vsc mei-vsc-hw ivsc-ace ivsc-csi; do
     if ! lsmod | grep -q "$(echo $mod | tr '-' '_')"; then
         sudo modprobe "$mod"
@@ -113,7 +113,7 @@ echo "  ✓ Module soft-dependency configured (IVSC loads before sensor)"
 
 # Add IVSC modules to initramfs so they load before udev probes the sensor
 echo ""
-echo "[4/11] Adding IVSC modules to initramfs..."
+echo "[4/13] Adding IVSC modules to initramfs..."
 INITRAMFS_CHANGED=false
 for mod in mei-vsc mei-vsc-hw ivsc-ace ivsc-csi; do
     if ! grep -qxF "$mod" /etc/initramfs-tools/modules 2>/dev/null; then
@@ -132,7 +132,7 @@ fi
 
 # Re-probe sensor
 echo ""
-echo "[5/11] Re-probing camera sensor..."
+echo "[5/13] Re-probing camera sensor..."
 sudo modprobe -r ov02c10 2>/dev/null || true
 sleep 1
 sudo modprobe ov02c10
@@ -150,7 +150,7 @@ fi
 
 # Install packages
 echo ""
-echo "[6/11] Installing camera HAL and relay service..."
+echo "[6/13] Installing camera HAL and relay service..."
 NEED_INSTALL=false
 
 if ! dpkg -l libcamhal-ipu6epmtl 2>/dev/null | grep -q "^ii"; then
@@ -175,7 +175,7 @@ fi
 
 # Configure v4l2loopback and v4l2-relayd
 echo ""
-echo "[7/11] Configuring v4l2loopback and v4l2-relayd..."
+echo "[7/13] Configuring v4l2loopback and v4l2-relayd..."
 
 # Write persistent v4l2loopback config (overrides any package defaults)
 sudo tee /etc/modprobe.d/v4l2loopback.conf > /dev/null << 'EOF'
@@ -213,7 +213,7 @@ echo "  ✓ v4l2-relayd configured for IPU6"
 
 # Harden v4l2-relayd with auto-restart and sensor re-probe before start
 echo ""
-echo "[8/11] Hardening v4l2-relayd service..."
+echo "[8/13] Hardening v4l2-relayd service..."
 sudo mkdir -p /etc/systemd/system/v4l2-relayd@default.service.d
 sudo tee /etc/systemd/system/v4l2-relayd@default.service.d/override.conf > /dev/null << 'EOF'
 [Unit]
@@ -243,7 +243,7 @@ echo "  ✓ v4l2-relayd hardened with auto-restart and sensor re-probe"
 
 # Hide raw IPU6 ISYS video nodes from applications
 echo ""
-echo "[9/11] Hiding raw IPU6 video nodes..."
+echo "[9/13] Hiding raw IPU6 video nodes..."
 sudo tee /etc/udev/rules.d/90-hide-ipu6-v4l2.rules > /dev/null << 'EOF'
 # Hide Intel IPU6 ISYS raw capture nodes from user-space applications.
 # These ~48 /dev/video* nodes are internal to the IPU6 pipeline and unusable
@@ -264,7 +264,7 @@ echo "  ✓ IPU6 raw nodes hidden from applications"
 # (device.capabilities is read-only in PipeWire — WirePlumber rules cannot
 # override it; only a kernel-level cap change + udev event works.)
 echo ""
-echo "[10/11] Verifying PipeWire device classification..."
+echo "[10/13] Verifying PipeWire device classification..."
 systemctl --user restart wireplumber 2>/dev/null || true
 sleep 2
 if wpctl status 2>/dev/null | grep -A10 "^Video" | grep -qi "MIPI\|Intel.*V4L2"; then
@@ -274,9 +274,29 @@ else
     echo "    (The ExecStartPost udev trigger will handle this automatically on boot.)"
 fi
 
+# Install watchdog for blank frame auto-recovery
+echo ""
+echo "[11/13] Installing relay health watchdog..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sudo install -m 755 "$SCRIPT_DIR/v4l2-relayd-watchdog.sh" /usr/local/sbin/v4l2-relayd-watchdog.sh
+sudo install -m 644 "$SCRIPT_DIR/v4l2-relayd-watchdog.service" /etc/systemd/system/v4l2-relayd-watchdog.service
+sudo install -m 644 "$SCRIPT_DIR/v4l2-relayd-watchdog.timer" /etc/systemd/system/v4l2-relayd-watchdog.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now v4l2-relayd-watchdog.timer
+echo "  ✓ Watchdog timer enabled (checks every 3 minutes, auto-recovers after 3 failures)"
+
+# Install upstream detection service
+echo ""
+echo "[12/13] Installing upstream detection service..."
+sudo install -m 755 "$SCRIPT_DIR/v4l2-relayd-check-upstream.sh" /usr/local/sbin/v4l2-relayd-check-upstream.sh
+sudo install -m 644 "$SCRIPT_DIR/v4l2-relayd-check-upstream.service" /etc/systemd/system/v4l2-relayd-check-upstream.service
+sudo systemctl daemon-reload
+sudo systemctl enable v4l2-relayd-check-upstream.service
+echo "  ✓ Upstream detection enabled (auto-removes workaround when native support lands)"
+
 # Verify
 echo ""
-echo "[11/11] Verifying webcam..."
+echo "[13/13] Verifying webcam..."
 
 SERVICE_OK=false
 CAPTURE_OK=false
@@ -330,4 +350,9 @@ echo "    /etc/v4l2-relayd.d/default.conf"
 echo "    /etc/udev/rules.d/90-hide-ipu6-v4l2.rules"
 echo "    /etc/initramfs-tools/modules (IVSC entries)"
 echo "    /etc/systemd/system/v4l2-relayd@default.service.d/override.conf"
+echo "    /usr/local/sbin/v4l2-relayd-watchdog.sh"
+echo "    /etc/systemd/system/v4l2-relayd-watchdog.service"
+echo "    /etc/systemd/system/v4l2-relayd-watchdog.timer"
+echo "    /usr/local/sbin/v4l2-relayd-check-upstream.sh"
+echo "    /etc/systemd/system/v4l2-relayd-check-upstream.service"
 echo "=============================================="

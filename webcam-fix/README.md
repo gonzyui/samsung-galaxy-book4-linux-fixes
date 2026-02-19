@@ -355,7 +355,30 @@ You should see the camera listed under **Sources**:
 
 Without the ExecStartPost fix, only apps that directly open `/dev/video0` via V4L2 (mpv, ffmpeg, OBS) will work. Portal-based apps (GNOME Camera, browser WebRTC) will not see any camera.
 
-### Step 10: Verify
+### Step 10: Blank Frame Watchdog
+
+Over time (days of uptime, or after suspend/resume), CSI-2 frame sync errors can accumulate and the relay starts producing white/blank frames — but the process stays running, so systemd's `Restart=always` never triggers. A lightweight watchdog timer detects this and auto-recovers:
+
+- Runs every 3 minutes via systemd timer
+- Captures a test frame from `/dev/video0` and checks JPEG file size (real frames are 30-200KB; blank frames compress to <5KB)
+- Skips checks when the relay is initializing (30s grace period), the lid is closed, or the relay isn't running
+- After 3 consecutive blank-frame detections, performs recovery: stops the relay, cleans stale shared memory, unbinds/rebinds IPU6 ISYS, re-probes the sensor, and restarts the relay
+
+State is tracked in `/run/v4l2-relayd-watchdog/` (tmpfs — cleared on reboot). Manual trigger: `sudo systemctl start v4l2-relayd-watchdog.service`. Check timer: `systemctl list-timers | grep watchdog`.
+
+### Step 11: Upstream Detection
+
+A boot-time service checks whether native IPU6 webcam support has landed in the running kernel. When all three conditions are met, it auto-removes the entire v4l2-relayd workaround:
+
+1. **IVSC modules have ACPI aliases** — `mei-vsc` auto-loads without `/etc/modules-load.d/` hacks
+2. **libcamera IPU6 pipeline handler exists** — the open-source pipeline replaces the proprietary HAL
+3. **libcamera can enumerate the camera** — the pipeline handler actually works with this kernel
+
+When native support is detected, the service removes all configuration files, systemd services, watchdog, and itself. The camera continues working that session (relay is already loaded), and the next reboot uses the native libcamera pipeline via PipeWire. No manual intervention needed.
+
+The service only runs if the workaround is still installed (`ConditionPathExists=/etc/v4l2-relayd.d/default.conf`).
+
+### Step 12: Verify
 
 ```bash
 # Capture a test frame
@@ -383,6 +406,11 @@ The install script creates these persistent configuration files:
 - `/etc/udev/rules.d/90-hide-ipu6-v4l2.rules` — Hides raw IPU6 nodes from applications
 - `/etc/initramfs-tools/modules` — IVSC module entries (loads before udev sensor probe)
 - `/etc/systemd/system/v4l2-relayd@default.service.d/override.conf` — Auto-restart and WirePlumber re-trigger
+- `/usr/local/sbin/v4l2-relayd-watchdog.sh` — Blank frame detection and recovery script
+- `/etc/systemd/system/v4l2-relayd-watchdog.service` — Watchdog oneshot service
+- `/etc/systemd/system/v4l2-relayd-watchdog.timer` — Watchdog timer (every 3 minutes)
+- `/usr/local/sbin/v4l2-relayd-check-upstream.sh` — Detects native kernel support and auto-removes workaround
+- `/etc/systemd/system/v4l2-relayd-check-upstream.service` — Upstream detection (runs at boot)
 
 ---
 
