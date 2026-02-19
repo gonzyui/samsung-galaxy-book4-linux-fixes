@@ -17,7 +17,7 @@ MAX_FAILURES=3
 MIN_JPEG_BYTES=10240  # 10KB — real 1280x720 frames are 30-200KB; blank < 5KB
 
 ISYS_DEVICE="intel_ipu6.isys.40"
-ISYS_DRIVER_PATH="/sys/bus/auxiliary/drivers/intel-ipu6-isys"
+ISYS_DRIVER_PATH="/sys/bus/auxiliary/drivers/intel_ipu6_isys.isys"
 SHM_KEY="0x0043414d"  # icamerasrc shared memory key
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') watchdog: $*"; }
@@ -122,24 +122,21 @@ if ipcs -m 2>/dev/null | grep -q "$SHM_KEY"; then
     ipcrm -M "$SHM_KEY" 2>/dev/null || true
 fi
 
-# 3. Unbind IPU6 ISYS
+# 3. Unbind IPU6 ISYS to reset the CSI-2 link
+#    NOTE: Do NOT unload/reload ov02c10 — modprobe -r with IVSC loaded causes
+#    a kernel oops (page fault in v4l2_fwnode_endpoint_alloc_parse due to stale
+#    firmware node references). ISYS unbind/rebind alone resets the CSI link.
 if [[ -e "$ISYS_DRIVER_PATH/$ISYS_DEVICE" ]]; then
     log "unbinding IPU6 ISYS..."
     echo "$ISYS_DEVICE" > "$ISYS_DRIVER_PATH/unbind" 2>/dev/null || true
-    sleep 1
+    sleep 2
 fi
 
-# 4. Re-probe sensor
-log "re-probing ov02c10 sensor..."
-modprobe -r ov02c10 2>/dev/null || true
-sleep 2
-modprobe ov02c10
-
-# 5. Rebind IPU6 ISYS
+# 4. Rebind IPU6 ISYS
 if [[ ! -e "$ISYS_DRIVER_PATH/$ISYS_DEVICE" ]]; then
     log "rebinding IPU6 ISYS..."
     echo "$ISYS_DEVICE" > "$ISYS_DRIVER_PATH/bind" 2>/dev/null || true
-    sleep 2
+    sleep 3
 fi
 
 # 6. Start relay (ExecStartPost handles udev trigger + WirePlumber restart)
