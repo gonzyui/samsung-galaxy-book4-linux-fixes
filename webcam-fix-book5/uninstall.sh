@@ -50,7 +50,7 @@ sudo rm -f /etc/modules-load.d/intel-ipu7-camera.conf
 sudo rm -f /etc/modules-load.d/intel-cvs.conf
 echo "  ✓ Module autoload configuration removed"
 
-# [5/6] Remove udev rules
+# [5/6] Remove udev rules (including legacy hide rule from earlier versions)
 echo "[5/6] Removing udev rules..."
 sudo rm -f /etc/udev/rules.d/90-hide-ipu7-v4l2.rules
 sudo udevadm control --reload-rules 2>/dev/null || true

@@ -39,7 +39,7 @@ echo "=============================================="
 echo ""
 
 # ──────────────────────────────────────────────
-# [1/12] Root check
+# [1/10] Root check
 # ──────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     echo "ERROR: Don't run this as root. The script will use sudo where needed."
@@ -47,9 +47,9 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [2/12] Distro detection
+# [2/10] Distro detection
 # ──────────────────────────────────────────────
-echo "[2/12] Detecting distro..."
+echo "[2/10] Detecting distro..."
 if command -v pacman >/dev/null 2>&1; then
     DISTRO="arch"
     echo "  ✓ Arch-based distro detected"
@@ -94,10 +94,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [3/12] Hardware detection
+# [3/10] Hardware detection
 # ──────────────────────────────────────────────
 echo ""
-echo "[3/12] Verifying hardware..."
+echo "[3/10] Verifying hardware..."
 
 # Check for Lunar Lake IPU7
 IPU7_FOUND=false
@@ -148,10 +148,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [4/12] Kernel version check
+# [4/10] Kernel version check
 # ──────────────────────────────────────────────
 echo ""
-echo "[4/12] Checking kernel version..."
+echo "[4/10] Checking kernel version..."
 KVER=$(uname -r)
 KMAJOR=$(echo "$KVER" | cut -d. -f1)
 KMINOR=$(echo "$KVER" | cut -d. -f2)
@@ -173,10 +173,10 @@ fi
 echo "  ✓ Kernel ${KVER} (>= 6.18 required)"
 
 # ──────────────────────────────────────────────
-# [5/12] Install distro packages
+# [5/10] Install distro packages
 # ──────────────────────────────────────────────
 echo ""
-echo "[5/12] Installing required packages..."
+echo "[5/10] Installing required packages..."
 
 if [[ "$DISTRO" == "arch" ]]; then
     # Check what's missing
@@ -246,10 +246,10 @@ elif [[ "$DISTRO" == "ubuntu" ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [6/12] Build intel-vision-drivers via DKMS
+# [6/10] Build intel-vision-drivers via DKMS
 # ──────────────────────────────────────────────
 echo ""
-echo "[6/12] Installing intel_cvs module via DKMS..."
+echo "[6/10] Installing intel_cvs module via DKMS..."
 
 # Check if already installed and working
 if dkms status "vision-driver/${VISION_DRIVER_VER}" 2>/dev/null | grep -q "installed"; then
@@ -369,10 +369,10 @@ SIGNEOF
 fi
 
 # ──────────────────────────────────────────────
-# [7/12] Module load configuration
+# [7/10] Module load configuration
 # ──────────────────────────────────────────────
 echo ""
-echo "[7/12] Configuring module loading..."
+echo "[7/10] Configuring module loading..."
 
 # The full module chain for IPU7 camera on Lunar Lake:
 # usb_ljca -> gpio_ljca -> intel_cvs -> ov02c10/ov02e10
@@ -389,7 +389,7 @@ EOF
 echo "  ✓ Created /etc/modules-load.d/intel-ipu7-camera.conf"
 
 # Determine which sensor module name to use for softdep
-SENSOR_MOD="${SENSOR:-ov02c10}"
+SENSOR_MOD="${SENSOR:-ov02e10}"
 
 # Ensure correct load order: LJCA -> intel_cvs -> sensor
 sudo tee /etc/modprobe.d/intel-ipu7-camera.conf > /dev/null << EOF
@@ -402,10 +402,10 @@ EOF
 echo "  ✓ Created /etc/modprobe.d/intel-ipu7-camera.conf"
 
 # ──────────────────────────────────────────────
-# [8/12] libcamera IPA module path
+# [8/10] libcamera IPA module path
 # ──────────────────────────────────────────────
 echo ""
-echo "[8/12] Configuring libcamera environment..."
+echo "[8/10] Configuring libcamera environment..."
 
 # Determine IPA path based on distro
 if [[ "$DISTRO" == "fedora" ]]; then
@@ -443,27 +443,10 @@ EOF
 echo "  ✓ Created /etc/profile.d/libcamera-ipa.sh"
 
 # ──────────────────────────────────────────────
-# [9/12] Hide raw IPU7 video nodes
+# [9/10] Load modules and test
 # ──────────────────────────────────────────────
 echo ""
-echo "[9/12] Hiding raw IPU7 video nodes from applications..."
-sudo tee /etc/udev/rules.d/90-hide-ipu7-v4l2.rules > /dev/null << 'EOF'
-# Hide Intel IPU7 ISYS raw capture nodes from user-space applications.
-# These /dev/video* nodes are internal to the IPU7 pipeline and unusable
-# by apps directly. Exposing them confuses apps that enumerate all video devices.
-# TAG-="uaccess" prevents PipeWire/WirePlumber from creating nodes for them.
-# MODE="0000" blocks direct access (libcamera handles the raw nodes internally).
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="Intel IPU7 ISYS Capture*", MODE="0000", TAG-="uaccess"
-EOF
-sudo udevadm control --reload-rules
-sudo udevadm trigger --subsystem-match=video4linux 2>/dev/null || true
-echo "  ✓ Created /etc/udev/rules.d/90-hide-ipu7-v4l2.rules"
-
-# ──────────────────────────────────────────────
-# [10/12] Load modules and test
-# ──────────────────────────────────────────────
-echo ""
-echo "[10/12] Loading modules and testing..."
+echo "[9/10] Loading modules and testing..."
 
 # Try to load LJCA and intel_cvs now
 for mod in usb_ljca gpio_ljca; do
@@ -502,7 +485,7 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [12/12] Summary
+# [10/10] Summary
 # ──────────────────────────────────────────────
 echo ""
 echo "=============================================="
@@ -531,7 +514,6 @@ echo ""
 echo "  Configuration files created:"
 echo "    /etc/modules-load.d/intel-ipu7-camera.conf"
 echo "    /etc/modprobe.d/intel-ipu7-camera.conf"
-echo "    /etc/udev/rules.d/90-hide-ipu7-v4l2.rules"
 echo "    /etc/environment.d/libcamera-ipa.conf"
 echo "    /etc/profile.d/libcamera-ipa.sh"
 echo "    ${SRC_DIR}/ (DKMS source)"
