@@ -154,7 +154,13 @@ Then relaunch the browser. If Chrome still shows "waiting for your permission" w
 2. Clear site permissions for the page you're testing
 3. Try an Incognito window (to rule out extension conflicts)
 
+**Edge:** As of February 2026, Microsoft Edge does not expose a PipeWire camera flag in `edge://flags`. Camera access through PipeWire is not yet supported in Edge on Linux.
+
 **Note:** These flags may become enabled by default in future browser versions.
+
+### VLC doesn't see the camera
+
+VLC uses V4L2 directly, not PipeWire. Since IPU7's V4L2 nodes expose raw bayer data (not usable video), VLC cannot access the camera through its V4L2 capture module. Use a PipeWire-aware app (Firefox, qcam) or wait for VLC to add PipeWire camera support.
 
 ### PipeWire doesn't see the camera
 
@@ -175,7 +181,7 @@ If that doesn't help, verify that `pipewire-libcamera` (Arch) or `pipewire-plugi
 | Dell XPS 13 9350 | Lunar Lake | Arch | 6.18+ | Working | OV02C10 sensor |
 | Lenovo X1 Carbon Gen13 | Lunar Lake | Fedora 42 | 6.18+ | Working | Confirmed by community |
 | Samsung Galaxy Book5 360 | Lunar Lake | Fedora 42 | 6.18+ | Working (browsers) | Community report |
-| Samsung Galaxy Book5 360 | Lunar Lake | Ubuntu 24.04 | 6.19.2 | Working (qcam) | OV02E10 sensor. Image flipped, Firefox conflict. Kernel + libcamera from source. |
+| Samsung Galaxy Book5 Pro 16" (960XHA) | Lunar Lake | Ubuntu 24.04 | 6.19.2 | Working (Firefox, qcam) | OV02E10 sensor. Kernel + libcamera from source. |
 | Samsung Galaxy Book5 Pro (940XHA) | Lunar Lake | Fedora 43 | latest | Working (natively) | OV02E10 sensor. Works without installer. Image vertically flipped. |
 | Samsung Galaxy Book5 Pro | Lunar Lake | — | — | **UNTESTED** | Other distros — please report if you try |
 | Samsung Galaxy Book5 Pro 360 | Lunar Lake | — | — | **UNTESTED** | Please report if you try |
