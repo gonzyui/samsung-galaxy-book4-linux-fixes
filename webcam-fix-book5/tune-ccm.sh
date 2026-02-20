@@ -265,28 +265,30 @@ apply_preset() {
     echo "  $desc"
     echo "──────────────────────────────────────────────"
 
-    # Write tuning file
-    echo "$yaml" | sudo tee "$TUNING_FILE" > /dev/null
-
-    # Kill existing qcam
+    # Kill existing qcam first (must release camera before restarting)
     if [[ -n "$QCAM_PID" ]] && kill -0 "$QCAM_PID" 2>/dev/null; then
         kill "$QCAM_PID" 2>/dev/null
         wait "$QCAM_PID" 2>/dev/null || true
+        sleep 0.5  # let camera device settle after close
     fi
 
-    # Launch qcam in background
-    qcam 2>/dev/null &
+    # Write tuning file
+    echo "$yaml" | sudo tee "$TUNING_FILE" > /dev/null
+    sync  # ensure file is flushed to disk before qcam reads it
+
+    # Launch qcam in background (stderr visible for debugging)
+    qcam &
     QCAM_PID=$!
 
-    # Give qcam a moment to open
-    sleep 1
+    # Give qcam time to open window and start streaming
+    sleep 3
 }
 
 apply_preset $CURRENT
 
 while true; do
     echo ""
-    read -r -p "  [${CURRENT}/$((TOTAL-1))] Next(Enter/n) Prev(p) Save(s) Quit(q) Jump(1-${TOTAL}): " choice
+    read -r -p "  [$((CURRENT+1))/${TOTAL}] Next(Enter/n) Prev(p) Save(s) Quit(q) Jump(1-${TOTAL}): " choice
 
     case "$choice" in
         ""| n | N)
@@ -326,7 +328,6 @@ fi
 
 echo ""
 if [[ $SELECTED -ge 0 ]]; then
-    local_IFS='|'
     IFS='|' read -r name _ _ <<< "${PRESETS[$SELECTED]}"
     echo "=============================================="
     echo "  Saved: $name"

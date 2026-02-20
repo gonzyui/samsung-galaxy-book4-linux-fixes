@@ -588,16 +588,23 @@ if [[ -d /etc/wireplumber/wireplumber.conf.d ]] || \
         /etc/wireplumber/wireplumber.conf.d/50-disable-ipu7-v4l2.conf
     echo "  ✓ Installed WirePlumber 0.5+ rule (wireplumber.conf.d/)"
     WP_RULE_INSTALLED=true
+    # Clean up Lua file from older installer runs (unsupported on 0.5+, causes warnings)
+    if [[ -f /etc/wireplumber/main.lua.d/51-disable-ipu7-v4l2.lua ]]; then
+        sudo rm -f /etc/wireplumber/main.lua.d/51-disable-ipu7-v4l2.lua
+        echo "  ✓ Removed stale WirePlumber 0.4 Lua rule (unsupported on 0.5+)"
+    fi
 fi
 
-# WirePlumber 0.4 uses Lua scripts in main.lua.d/
-if [[ -d /etc/wireplumber/main.lua.d ]] || \
-   [[ -d /usr/share/wireplumber/main.lua.d ]]; then
-    sudo mkdir -p /etc/wireplumber/main.lua.d
-    sudo cp "$SCRIPT_DIR/50-disable-ipu7-v4l2.lua" \
-        /etc/wireplumber/main.lua.d/51-disable-ipu7-v4l2.lua
-    echo "  ✓ Installed WirePlumber 0.4 rule (main.lua.d/)"
-    WP_RULE_INSTALLED=true
+# WirePlumber 0.4 uses Lua scripts in main.lua.d/ (skip if 0.5+ already installed)
+if ! $WP_RULE_INSTALLED; then
+    if [[ -d /etc/wireplumber/main.lua.d ]] || \
+       [[ -d /usr/share/wireplumber/main.lua.d ]]; then
+        sudo mkdir -p /etc/wireplumber/main.lua.d
+        sudo cp "$SCRIPT_DIR/50-disable-ipu7-v4l2.lua" \
+            /etc/wireplumber/main.lua.d/51-disable-ipu7-v4l2.lua
+        echo "  ✓ Installed WirePlumber 0.4 rule (main.lua.d/)"
+        WP_RULE_INSTALLED=true
+    fi
 fi
 
 if ! $WP_RULE_INSTALLED; then
