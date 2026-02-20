@@ -9,6 +9,8 @@ VISION_DRIVER_VER="1.0.0"
 SRC_DIR="/usr/src/vision-driver-${VISION_DRIVER_VER}"
 IPU_BRIDGE_FIX_VER="1.0"
 IPU_BRIDGE_FIX_SRC="/usr/src/ipu-bridge-fix-${IPU_BRIDGE_FIX_VER}"
+OV02E10_FIX_VER="1.0"
+OV02E10_FIX_SRC="/usr/src/ov02e10-fix-${OV02E10_FIX_VER}"
 
 echo "=============================================="
 echo "  Samsung Galaxy Book5 Webcam Fix Uninstaller"
@@ -56,6 +58,19 @@ sudo rm -f /etc/systemd/system/ipu-bridge-check-upstream.service
 sudo rm -f /usr/local/sbin/ipu-bridge-check-upstream.sh
 # Restore kernel's original ipu-bridge
 sudo depmod -a 2>/dev/null || true
+
+# [3b/9] Remove ov02e10-fix DKMS module (bayer pattern fix)
+echo "[3b/9] Removing ov02e10-fix DKMS module..."
+if dkms status "ov02e10-fix/${OV02E10_FIX_VER}" 2>/dev/null | grep -q "ov02e10-fix"; then
+    sudo dkms remove "ov02e10-fix/${OV02E10_FIX_VER}" --all 2>/dev/null || true
+    echo "  ✓ DKMS module removed"
+else
+    echo "  ✓ DKMS module not installed (nothing to remove)"
+fi
+if [[ -d "$OV02E10_FIX_SRC" ]]; then
+    sudo rm -rf "$OV02E10_FIX_SRC"
+    echo "  ✓ Removed ${OV02E10_FIX_SRC}"
+fi
 
 # [4/9] Remove modprobe config
 echo "[4/9] Removing module configuration..."

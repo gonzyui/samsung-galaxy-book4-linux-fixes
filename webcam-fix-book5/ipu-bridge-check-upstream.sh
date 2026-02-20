@@ -37,6 +37,17 @@ if ! decompress_module "$NATIVE_MODULE" | strings | grep -q "940XHA"; then
     exit 0
 fi
 
+# --- Also check if the native ov02e10 module has the bayer pattern fix ---
+OV02E10_DKMS_NAME="ov02e10-fix"
+OV02E10_DKMS_VER="1.0"
+OV02E10_NATIVE=$(find "/lib/modules/$(uname -r)/kernel" -name "ov02e10*" 2>/dev/null | head -1)
+OV02E10_UPSTREAM_FIXED=false
+if [ -n "$OV02E10_NATIVE" ]; then
+    if decompress_module "$OV02E10_NATIVE" | strings | grep -q "bayer_order\|SGBRG"; then
+        OV02E10_UPSTREAM_FIXED=true
+    fi
+fi
+
 # --- Upstream has the fix: auto-remove DKMS workaround ---
 log "=== SAMSUNG ROTATION FIX DETECTED in native ipu-bridge ($(uname -r)) ==="
 log "Auto-removing DKMS workaround..."
@@ -44,10 +55,21 @@ log "Auto-removing DKMS workaround..."
 # Disable this check service (remove ourselves)
 systemctl disable ipu-bridge-check-upstream.service 2>/dev/null || true
 
-# Remove DKMS module
+# Remove ipu-bridge-fix DKMS module
 if dkms status "${DKMS_NAME}/${DKMS_VER}" 2>/dev/null | grep -q "${DKMS_NAME}"; then
-    log "Removing DKMS module..."
+    log "Removing ipu-bridge-fix DKMS module..."
     dkms remove "${DKMS_NAME}/${DKMS_VER}" --all 2>/dev/null || true
+fi
+
+# Remove ov02e10-fix DKMS module (paired fix for bayer pattern with rotation)
+if $OV02E10_UPSTREAM_FIXED; then
+    if dkms status "${OV02E10_DKMS_NAME}/${OV02E10_DKMS_VER}" 2>/dev/null | grep -q "${OV02E10_DKMS_NAME}"; then
+        log "Native ov02e10 also has bayer fix — removing ov02e10-fix DKMS module..."
+        dkms remove "${OV02E10_DKMS_NAME}/${OV02E10_DKMS_VER}" --all 2>/dev/null || true
+    fi
+    rm -rf "/usr/src/${OV02E10_DKMS_NAME}-${OV02E10_DKMS_VER}"
+else
+    log "Note: native ov02e10 does NOT have bayer pattern fix yet — keeping ov02e10-fix DKMS"
 fi
 
 # Remove installed files
@@ -55,7 +77,7 @@ rm -f /etc/systemd/system/ipu-bridge-check-upstream.service
 rm -f /usr/local/sbin/ipu-bridge-check-upstream.sh
 rm -rf "/usr/src/${DKMS_NAME}-${DKMS_VER}"
 
-# Rebuild module dependency map so kernel's original ipu-bridge is used
+# Rebuild module dependency map so kernel's original modules are used
 depmod -a
 
 systemctl daemon-reload
