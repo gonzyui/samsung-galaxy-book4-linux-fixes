@@ -103,15 +103,16 @@ The uninstaller removes the DKMS module, source files, and all configuration fil
 
 ## Known Issues
 
-### Green tint / color cast
+### Desaturated / grayscale / green-tinted image
 
-IPU7 + libcamera may produce a green tint or incorrect white balance. This is because libcamera calibration/tuning profiles for specific sensors on IPU7 are still being developed. This is a **libcamera tuning issue**, not a driver bug.
+libcamera's Software ISP uses `uncalibrated.yaml` by default, which has **no color correction matrix (CCM)** — producing near-grayscale or green-tinted images. The installer now installs a sensor-specific tuning file (`ov02e10.yaml` or `ov02c10.yaml`) with a light CCM that restores reasonable color.
 
-**Workaround:** Adjust white balance in your app if possible, or wait for updated libcamera tuning files.
+If your image still looks desaturated after installing, verify the tuning file is in place:
+```bash
+ls /usr/share/libcamera/ipa/simple/ov02*.yaml /usr/local/share/libcamera/ipa/simple/ov02*.yaml 2>/dev/null
+```
 
-### No calibration profiles
-
-Sensor-specific IPA (Image Processing Algorithm) tuning files may not exist yet for the OV02C10 on IPU7. libcamera will use defaults, which may result in suboptimal image quality.
+**Note:** The included CCM is a "light touch" correction — image quality won't match Windows, which uses Intel's proprietary ISP tuning. Full sensor calibration files are [being developed upstream](https://patchwork.libcamera.org/cover/22762/) by the libcamera project.
 
 ### Vertically flipped image
 
@@ -213,6 +214,8 @@ The install script creates these files:
 | `/etc/modprobe.d/intel-ipu7-camera.conf` | Softdep: LJCA -> intel_cvs -> sensor load order |
 | `/etc/wireplumber/wireplumber.conf.d/50-disable-ipu7-v4l2.conf` | Hide raw IPU7 V4L2 nodes from PipeWire (WirePlumber 0.5+) |
 | `/etc/wireplumber/main.lua.d/51-disable-ipu7-v4l2.lua` | Hide raw IPU7 V4L2 nodes from PipeWire (WirePlumber 0.4) |
+| `/usr/share/libcamera/ipa/simple/ov02e10.yaml` | Sensor color tuning file with CCM (OV02E10) |
+| `/usr/share/libcamera/ipa/simple/ov02c10.yaml` | Sensor color tuning file with CCM (OV02C10) |
 | `/etc/environment.d/libcamera-ipa.conf` | Set LIBCAMERA_IPA_MODULE_PATH + SPA_PLUGIN_DIR (systemd sessions) |
 | `/etc/profile.d/libcamera-ipa.sh` | Set LIBCAMERA_IPA_MODULE_PATH + SPA_PLUGIN_DIR (login shells) |
 | `/usr/src/vision-driver-1.0.0/` | DKMS source for intel_cvs module |

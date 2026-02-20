@@ -39,7 +39,7 @@ echo "=============================================="
 echo ""
 
 # ──────────────────────────────────────────────
-# [1/12] Root check
+# [1/13] Root check
 # ──────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     echo "ERROR: Don't run this as root. The script will use sudo where needed."
@@ -47,9 +47,9 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [2/12] Distro detection
+# [2/13] Distro detection
 # ──────────────────────────────────────────────
-echo "[2/12] Detecting distro..."
+echo "[2/13] Detecting distro..."
 if command -v pacman >/dev/null 2>&1; then
     DISTRO="arch"
     echo "  ✓ Arch-based distro detected"
@@ -94,10 +94,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [3/12] Hardware detection
+# [3/13] Hardware detection
 # ──────────────────────────────────────────────
 echo ""
-echo "[3/12] Verifying hardware..."
+echo "[3/13] Verifying hardware..."
 
 # Check for Lunar Lake IPU7
 IPU7_FOUND=false
@@ -148,10 +148,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [4/12] Kernel version check
+# [4/13] Kernel version check
 # ──────────────────────────────────────────────
 echo ""
-echo "[4/12] Checking kernel version..."
+echo "[4/13] Checking kernel version..."
 KVER=$(uname -r)
 KMAJOR=$(echo "$KVER" | cut -d. -f1)
 KMINOR=$(echo "$KVER" | cut -d. -f2)
@@ -173,10 +173,10 @@ fi
 echo "  ✓ Kernel ${KVER} (>= 6.18 required)"
 
 # ──────────────────────────────────────────────
-# [5/12] Install distro packages
+# [5/13] Install distro packages
 # ──────────────────────────────────────────────
 echo ""
-echo "[5/12] Installing required packages..."
+echo "[5/13] Installing required packages..."
 
 if [[ "$DISTRO" == "arch" ]]; then
     # Check what's missing
@@ -246,10 +246,10 @@ elif [[ "$DISTRO" == "ubuntu" ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [6/12] Build intel-vision-drivers via DKMS
+# [6/13] Build intel-vision-drivers via DKMS
 # ──────────────────────────────────────────────
 echo ""
-echo "[6/12] Installing intel_cvs module via DKMS..."
+echo "[6/13] Installing intel_cvs module via DKMS..."
 
 # Check if already installed and working
 if dkms status "vision-driver/${VISION_DRIVER_VER}" 2>/dev/null | grep -q "installed"; then
@@ -369,10 +369,10 @@ SIGNEOF
 fi
 
 # ──────────────────────────────────────────────
-# [7/12] Samsung camera rotation fix (ipu-bridge DKMS)
+# [7/13] Samsung camera rotation fix (ipu-bridge DKMS)
 # ──────────────────────────────────────────────
 echo ""
-echo "[7/12] Installing ipu-bridge camera rotation fix..."
+echo "[7/13] Installing ipu-bridge camera rotation fix..."
 
 # Samsung Galaxy Book5 Pro models (940XHA, 960XHA) have their OV02E10 sensor
 # mounted upside-down, but Samsung's BIOS reports rotation=0. The kernel's
@@ -464,10 +464,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [8/12] Module load configuration
+# [8/13] Module load configuration
 # ──────────────────────────────────────────────
 echo ""
-echo "[8/12] Configuring module loading..."
+echo "[8/13] Configuring module loading..."
 
 # The full module chain for IPU7 camera on Lunar Lake:
 # usb_ljca -> gpio_ljca -> intel_cvs -> ov02c10/ov02e10
@@ -497,10 +497,10 @@ EOF
 echo "  ✓ Created /etc/modprobe.d/intel-ipu7-camera.conf"
 
 # ──────────────────────────────────────────────
-# [9/12] libcamera IPA module path
+# [9/13] libcamera IPA module path
 # ──────────────────────────────────────────────
 echo ""
-echo "[9/12] Configuring libcamera environment..."
+echo "[9/13] Configuring libcamera environment..."
 
 # Determine IPA path based on distro
 if [[ "$DISTRO" == "fedora" ]]; then
@@ -567,10 +567,10 @@ fi
 echo "  ✓ Created /etc/profile.d/libcamera-ipa.sh"
 
 # ──────────────────────────────────────────────
-# [10/12] Hide raw IPU7 V4L2 nodes from PipeWire
+# [10/13] Hide raw IPU7 V4L2 nodes from PipeWire
 # ──────────────────────────────────────────────
 echo ""
-echo "[10/12] Configuring WirePlumber to hide raw IPU7 V4L2 nodes..."
+echo "[10/13] Configuring WirePlumber to hide raw IPU7 V4L2 nodes..."
 
 # IPU7 exposes 32 raw V4L2 capture nodes that output bayer data unusable by
 # apps. Without this rule, PipeWire creates 32 "ipu7" camera sources that
@@ -606,10 +606,53 @@ if ! $WP_RULE_INSTALLED; then
 fi
 
 # ──────────────────────────────────────────────
-# [11/12] Load modules and test
+# [11/13] Install sensor color tuning file
 # ──────────────────────────────────────────────
 echo ""
-echo "[11/12] Loading modules and testing..."
+echo "[11/13] Installing libcamera color tuning file..."
+
+# libcamera's Software ISP uses uncalibrated.yaml by default, which has no
+# color correction matrix (CCM) — producing near-grayscale or green-tinted
+# images. We install a sensor-specific tuning file with a light CCM that
+# restores reasonable color. libcamera looks for <sensor>.yaml first, so
+# this doesn't modify the system's uncalibrated.yaml.
+
+TUNING_SENSOR="${SENSOR:-ov02e10}"
+TUNING_FILE="${TUNING_SENSOR}.yaml"
+
+# Find where libcamera's IPA tuning files are installed
+TUNING_DIR=""
+for dir in /usr/local/share/libcamera/ipa/simple \
+           /usr/share/libcamera/ipa/simple; do
+    if [[ -d "$dir" ]]; then
+        TUNING_DIR="$dir"
+        break
+    fi
+done
+
+if [[ -n "$TUNING_DIR" ]]; then
+    if [[ -f "$TUNING_DIR/$TUNING_FILE" ]]; then
+        echo "  ✓ Sensor tuning file already exists ($TUNING_DIR/$TUNING_FILE)"
+    else
+        SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+        if [[ -f "$SCRIPT_DIR/$TUNING_FILE" ]]; then
+            sudo cp "$SCRIPT_DIR/$TUNING_FILE" "$TUNING_DIR/$TUNING_FILE"
+            echo "  ✓ Installed $TUNING_FILE → $TUNING_DIR/"
+            echo "    (light CCM for color correction — not a full sensor calibration)"
+        else
+            echo "  ⚠ Tuning file $TUNING_FILE not found in installer directory"
+        fi
+    fi
+else
+    echo "  ⚠ Could not find libcamera IPA data directory"
+    echo "    Images may appear grayscale or green-tinted until a tuning file is installed"
+fi
+
+# ──────────────────────────────────────────────
+# [12/13] Load modules and test
+# ──────────────────────────────────────────────
+echo ""
+echo "[12/13] Loading modules and testing..."
 
 # Try to load LJCA and intel_cvs now
 for mod in usb_ljca gpio_ljca; do
@@ -648,7 +691,7 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [12/12] Summary
+# [13/13] Summary
 # ──────────────────────────────────────────────
 echo ""
 echo "=============================================="
@@ -670,8 +713,8 @@ echo "    Firefox:  about:config → media.webrtc.camera.allow-pipewire = true"
 echo "    Chrome:   chrome://flags → #enable-webrtc-pipewire-camera → Enabled"
 echo ""
 echo "  Known issues:"
-echo "    - Green tint: IPU7 calibration profiles may not exist for your sensor."
-echo "      This is a libcamera tuning issue, not a driver bug."
+echo "    - Color quality: A light color correction profile is installed, but image"
+echo "      quality may not match Windows. Full sensor calibration is pending upstream."
 echo "    - Vertically flipped image: Fixed on Samsung 940XHA/960XHA via ipu-bridge"
 echo "      DKMS patch. Other models may still be affected."
 echo "    - Firefox may conflict with other libcamera apps (qcam). If the camera"
