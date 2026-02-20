@@ -392,9 +392,6 @@ fi
 IPU_BRIDGE_FIX_VER="1.0"
 IPU_BRIDGE_FIX_SRC="/usr/src/ipu-bridge-fix-${IPU_BRIDGE_FIX_VER}"
 
-OV02E10_FIX_VER="1.0"
-OV02E10_FIX_SRC="/usr/src/ov02e10-fix-${OV02E10_FIX_VER}"
-
 if $NEEDS_ROTATION_FIX; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -463,58 +460,6 @@ SIGNEOF
     sudo systemctl enable ipu-bridge-check-upstream.service
     echo "  ✓ Upstream check service enabled (auto-removes fix when kernel catches up)"
 
-    # ── OV02E10 MODIFY_LAYOUT fix (paired with ipu-bridge rotation fix) ──
-    # When ipu-bridge reports rotation=180, libcamera applies hflip+vflip on
-    # the sensor. The mainline ov02e10 driver sets V4L2_CTRL_FLAG_MODIFY_LAYOUT
-    # on flip controls but never updates the reported bayer format code. This
-    # tells libcamera "I'll report the correct bayer code" but then doesn't,
-    # causing wrong debayering -> purple/magenta tint. Fix: remove the flag
-    # so libcamera applies BayerFormat::transform() itself.
-    if [[ "$SENSOR" == "ov02e10" ]] || [[ -z "$SENSOR" ]]; then
-        echo ""
-        echo "  Installing ov02e10 MODIFY_LAYOUT fix (prevents purple tint with rotation)..."
-
-        if dkms status "ov02e10-fix/${OV02E10_FIX_VER}" 2>/dev/null | grep -q "installed"; then
-            echo "  ✓ ov02e10-fix/${OV02E10_FIX_VER} already installed via DKMS"
-        else
-            # Check if native kernel ov02e10 already has the fix
-            # Either: MODIFY_LAYOUT removed (our approach) or bayer_order added (alternative)
-            NATIVE_OV02E10=$(find "/lib/modules/$(uname -r)/kernel" -name "ov02e10*" 2>/dev/null | head -1)
-            OV02E10_UPSTREAM_HAS_FIX=false
-            if [ -n "$NATIVE_OV02E10" ]; then
-                case "$NATIVE_OV02E10" in
-                    *.zst)  DECOMPRESS="zstdcat" ;;
-                    *.xz)   DECOMPRESS="xzcat" ;;
-                    *.gz)   DECOMPRESS="zcat" ;;
-                    *)      DECOMPRESS="cat" ;;
-                esac
-                if $DECOMPRESS "$NATIVE_OV02E10" 2>/dev/null | strings | grep -q "MODIFY_LAYOUT fix\|bayer_order\|SGBRG"; then
-                    OV02E10_UPSTREAM_HAS_FIX=true
-                fi
-            fi
-
-            if $OV02E10_UPSTREAM_HAS_FIX; then
-                echo "  ✓ Native kernel ov02e10 already has MODIFY_LAYOUT fix — skipping DKMS"
-            else
-                # Remove old DKMS version if present
-                if dkms status "ov02e10-fix/${OV02E10_FIX_VER}" 2>/dev/null | grep -q "ov02e10-fix"; then
-                    sudo dkms remove "ov02e10-fix/${OV02E10_FIX_VER}" --all 2>/dev/null || true
-                fi
-
-                # Copy source to DKMS tree
-                sudo rm -rf "$OV02E10_FIX_SRC"
-                sudo mkdir -p "$OV02E10_FIX_SRC"
-                sudo cp -a "$SCRIPT_DIR/ov02e10-fix/"* "$OV02E10_FIX_SRC/"
-
-                # Register, build, install
-                echo "  Building ov02e10 DKMS module..."
-                sudo dkms add "ov02e10-fix/${OV02E10_FIX_VER}" 2>/dev/null || true
-                sudo dkms build "ov02e10-fix/${OV02E10_FIX_VER}"
-                sudo dkms install "ov02e10-fix/${OV02E10_FIX_VER}"
-                echo "  ✓ ov02e10-fix/${OV02E10_FIX_VER} installed via DKMS"
-            fi
-        fi
-    fi
 else
     echo "  ✓ Not a Samsung 940XHA/960XHA — rotation fix not needed"
 fi
@@ -676,9 +621,12 @@ echo "[11/13] Installing libcamera color tuning file..."
 
 # libcamera's Software ISP uses uncalibrated.yaml by default, which has no
 # color correction matrix (CCM) — producing near-grayscale or green-tinted
-# images. We install a sensor-specific tuning file with a light CCM that
-# restores reasonable color. libcamera looks for <sensor>.yaml first, so
-# this doesn't modify the system's uncalibrated.yaml.
+# images. We install a sensor-specific tuning file with a CCM that restores
+# reasonable color. For OV02E10 on Samsung (rotation=180), the CCM also
+# includes an R↔B channel swap to compensate for the mainline driver's
+# bayer pattern bug (MODIFY_LAYOUT set but format code never updated).
+# libcamera looks for <sensor>.yaml first, so this doesn't modify the
+# system's uncalibrated.yaml.
 
 TUNING_SENSOR="${SENSOR:-ov02e10}"
 TUNING_FILE="${TUNING_SENSOR}.yaml"
@@ -791,9 +739,6 @@ if [[ -d "$IPU_BRIDGE_FIX_SRC" ]]; then
 echo "    ${IPU_BRIDGE_FIX_SRC}/ (ipu-bridge rotation fix DKMS source)"
 echo "    /usr/local/sbin/ipu-bridge-check-upstream.sh"
 echo "    /etc/systemd/system/ipu-bridge-check-upstream.service"
-fi
-if [[ -d "$OV02E10_FIX_SRC" ]]; then
-echo "    ${OV02E10_FIX_SRC}/ (ov02e10 MODIFY_LAYOUT fix DKMS source)"
 fi
 echo ""
 echo "  To uninstall: ./uninstall.sh"
