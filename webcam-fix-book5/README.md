@@ -112,6 +112,12 @@ If your image still looks desaturated after installing, verify the tuning file i
 ls /usr/share/libcamera/ipa/simple/ov02*.yaml /usr/local/share/libcamera/ipa/simple/ov02*.yaml 2>/dev/null
 ```
 
+**Interactive tuning:** If the default colors aren't right, use the interactive tuning tool to find the best preset:
+```bash
+./tune-ccm.sh
+```
+This cycles through 10 CCM presets (from no correction to strong green boost) with a live qcam preview. Press Enter to try the next preset, `s` to save your choice.
+
 **Note:** The included CCM is a "light touch" correction — image quality won't match Windows, which uses Intel's proprietary ISP tuning. Full sensor calibration files are [being developed upstream](https://patchwork.libcamera.org/cover/22762/) by the libcamera project.
 
 ### Vertically flipped image
