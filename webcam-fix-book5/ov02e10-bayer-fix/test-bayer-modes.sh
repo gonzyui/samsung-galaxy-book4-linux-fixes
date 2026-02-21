@@ -87,10 +87,17 @@ for mode in 0 1 2 3 4; do
     modprobe ov02e10 window_offset_mode=$mode
     sleep 2
 
-    # Launch qcam as the real user (not root)
+    # Launch qcam as the real user with their display session
     REAL_USER="${SUDO_USER:-$USER}"
+    REAL_UID=$(id -u "$REAL_USER")
     echo "  Launching qcam..."
-    su "$REAL_USER" -c "qcam" &
+    su "$REAL_USER" -c "
+        export DISPLAY=${DISPLAY:-:0}
+        export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+        export XDG_RUNTIME_DIR=/run/user/$REAL_UID
+        export XAUTHORITY=${XAUTHORITY:-/home/$REAL_USER/.Xauthority}
+        qcam
+    " &
     QCAM_PID=$!
     sleep 3
 
