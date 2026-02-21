@@ -45,6 +45,11 @@ module_param(window_offset_mode, int, 0644);
 MODULE_PARM_DESC(window_offset_mode,
 	"Bayer pattern fix mode (0=none, 1-4=different register experiments)");
 
+static bool dump_regs;
+module_param(dump_regs, bool, 0644);
+MODULE_PARM_DESC(dump_regs,
+	"Dump all registers on all pages to dmesg at stream start (default=false)");
+
 #define OV02E10_LINK_FREQ_360MHZ	360000000ULL
 #define OV02E10_SCLK			36000000LL
 #define OV02E10_MCLK			19200000
@@ -652,6 +657,82 @@ static int ov02e10_set_stream_mode(struct ov02e10 *ov02e10, u8 val)
 	return ret;
 }
 
+/*
+ * Dump all registers on all known pages to dmesg.
+ * This reads back the actual hardware register values after mode init
+ * and control setup, so we can see exactly what the sensor is configured to.
+ * Used to reverse-engineer which registers change when flip is applied.
+ *
+ * Output format: one line per page with all 256 register values in hex.
+ * Compare dumps with flip=on vs flip=off to find bayer-relevant registers.
+ */
+static void ov02e10_dump_all_regs(struct ov02e10 *ov02e10)
+{
+	/*
+	 * All known pages and their 0xfd select values.
+	 * Page naming follows the driver convention (page "7" = fd value 0x05).
+	 */
+	static const struct {
+		const char *name;
+		u8 fd_val;
+	} pages[] = {
+		{ "P0", 0x00 },
+		{ "P1", 0x01 },
+		{ "P2", 0x02 },
+		{ "P3", 0x03 },
+		{ "P5", 0x04 },
+		{ "P7", 0x05 },
+		{ "P8", 0x06 },
+		{ "P9", 0x0F },
+		{ "PD", 0x08 },
+		{ "PE", 0x09 },
+		{ "PF", 0x0A },
+	};
+	char line[800]; /* 256 regs * 3 chars each + header */
+	int p, r, pos, ret;
+	u64 val;
+
+	dev_info(ov02e10->dev,
+		 "=== OV02E10 REGISTER DUMP (hflip=%d vflip=%d mode=%d) ===\n",
+		 ov02e10->hflip->val, ov02e10->vflip->val,
+		 window_offset_mode);
+
+	for (p = 0; p < ARRAY_SIZE(pages); p++) {
+		/* Select page */
+		ret = cci_write(ov02e10->regmap, OV02E10_REG_PAGE_FLAG,
+				pages[p].fd_val, NULL);
+		if (ret) {
+			dev_err(ov02e10->dev, "DUMP: failed to select %s\n",
+				pages[p].name);
+			continue;
+		}
+
+		/* Read registers 0x00-0xFF in groups of 16 for readability */
+		for (r = 0; r < 256; r += 16) {
+			int i;
+
+			pos = snprintf(line, sizeof(line), "DUMP %s 0x%02x:",
+				       pages[p].name, r);
+			for (i = 0; i < 16 && (r + i) < 256; i++) {
+				val = 0;
+				ret = cci_read(ov02e10->regmap,
+					       CCI_REG8(r + i), &val, NULL);
+				if (ret)
+					pos += snprintf(line + pos,
+							sizeof(line) - pos,
+							" XX");
+				else
+					pos += snprintf(line + pos,
+							sizeof(line) - pos,
+							" %02x", (u8)val);
+			}
+			dev_info(ov02e10->dev, "%s\n", line);
+		}
+	}
+
+	dev_info(ov02e10->dev, "=== END REGISTER DUMP ===\n");
+}
+
 static int ov02e10_enable_streams(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_state *state,
 				  u32 pad, u64 streams_mask)
@@ -675,6 +756,10 @@ static int ov02e10_enable_streams(struct v4l2_subdev *sd,
 	ret = __v4l2_ctrl_handler_setup(ov02e10->sd.ctrl_handler);
 	if (ret)
 		goto out;
+
+	/* Dump registers AFTER mode init + controls applied, BEFORE streaming */
+	if (dump_regs)
+		ov02e10_dump_all_regs(ov02e10);
 
 	ret = ov02e10_set_stream_mode(ov02e10, 1);
 
