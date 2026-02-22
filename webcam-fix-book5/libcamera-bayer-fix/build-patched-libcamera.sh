@@ -67,6 +67,8 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 
     ldconfig 2>/dev/null || true
     rm -rf "$BACKUP_DIR"
+    # Clean up IPA path env file
+    rm -f /etc/profile.d/libcamera-ipa-path.sh
     ok "Original libcamera restored."
     echo ""
     exit 0
@@ -660,6 +662,19 @@ if [[ $INSTALLED_COUNT -eq 0 ]]; then
 fi
 
 ldconfig 2>/dev/null || true
+
+# Fix IPA module path: our built .so has compiled-in IPA paths that may
+# not match the distro's layout. Create an env config so libcamera can
+# find the original IPA modules.
+if [[ -n "${LIBCAMERA_IPA_DIR:-}" && -d "$LIBCAMERA_IPA_DIR" ]]; then
+    IPA_ENV_FILE="/etc/profile.d/libcamera-ipa-path.sh"
+    echo "export LIBCAMERA_IPA_MODULE_PATH=$LIBCAMERA_IPA_DIR" > "$IPA_ENV_FILE"
+    chmod 644 "$IPA_ENV_FILE"
+    # Also set it for the current session
+    export LIBCAMERA_IPA_MODULE_PATH="$LIBCAMERA_IPA_DIR"
+    ok "IPA module path configured: $LIBCAMERA_IPA_DIR"
+    info "  Environment file: $IPA_ENV_FILE"
+fi
 
 ok "Patched libcamera installed ($INSTALLED_COUNT libraries replaced)."
 info "IPA modules were NOT replaced (preserving original signatures)."
