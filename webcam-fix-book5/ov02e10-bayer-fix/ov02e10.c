@@ -450,9 +450,13 @@ static void ov02e10_adjust_window_for_flip(struct ov02e10 *ov02e10,
 	cci_write(ov02e10->regmap, OV02E10_P7_REG_D_HI, 0x00, pret);
 	cci_write(ov02e10->regmap, OV02E10_P7_REG_D_LO, d_lo, pret);
 
-	dev_dbg(ov02e10->dev,
-		"ov02e10: mode=%d hflip=%d vflip=%d -> A=0x%02x B=0x%02x C=0x%02x D=0x%02x\n",
-		window_offset_mode, hflip, vflip, a_lo, b_lo, c_lo, d_lo);
+	/* Switch back to page 1 so COMMAND_UPDATE (0xE7) hits the right page */
+	cci_write(ov02e10->regmap, OV02E10_REG_PAGE_FLAG,
+		  OV02E10_PAGE_1, pret);
+
+	dev_info(ov02e10->dev,
+		 "ov02e10: window adjust mode=%d hflip=%d vflip=%d -> A=0x%02x B=0x%02x C=0x%02x D=0x%02x\n",
+		 window_offset_mode, hflip, vflip, a_lo, b_lo, c_lo, d_lo);
 }
 
 static int ov02e10_set_ctrl(struct v4l2_ctrl *ctrl)
