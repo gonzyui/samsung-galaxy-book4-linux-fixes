@@ -577,16 +577,33 @@ if [[ "$DISTRO" == "fedora" ]]; then
                 rpmbuild -bp --define "_topdir $RPM_BUILD" "$SPEC_FILE" 2>&1 | tail -10
 
                 # Find the prepared source directory
-                PREPPED_SRC=$(find "$RPM_BUILD/BUILD" -maxdepth 2 -name "meson.build" \
-                    -path "*/libcamera*/meson.build" -printf '%h\n' 2>/dev/null | head -1)
+                # Try multiple strategies — Fedora may name the dir differently
+                PREPPED_SRC=""
 
-                if [[ -n "$PREPPED_SRC" && -d "$PREPPED_SRC" ]]; then
-                    # Move to expected location
+                # Strategy 1: Look for meson.build with project('libcamera')
+                while IFS= read -r meson_file; do
+                    if grep -q "project.*libcamera" "$meson_file" 2>/dev/null; then
+                        PREPPED_SRC="$(dirname "$meson_file")"
+                        break
+                    fi
+                done < <(find "$RPM_BUILD/BUILD" -maxdepth 3 -name "meson.build" 2>/dev/null)
+
+                # Strategy 2: Just grab the first directory in BUILD
+                if [[ -z "$PREPPED_SRC" ]]; then
+                    PREPPED_SRC=$(find "$RPM_BUILD/BUILD" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
+                fi
+
+                # Debug: show what's in BUILD
+                if [[ -z "$PREPPED_SRC" || ! -d "$PREPPED_SRC" ]]; then
+                    warn "Could not find prepared source. Contents of BUILD dir:"
+                    ls -la "$RPM_BUILD/BUILD/" 2>/dev/null || true
+                    find "$RPM_BUILD/BUILD" -maxdepth 2 -name "meson.build" 2>/dev/null || true
+                    warn "Falling back to git clone."
+                else
+                    info "Found source at: $PREPPED_SRC"
                     mv "$PREPPED_SRC" "$BUILD_DIR/libcamera"
                     USE_SRPM=true
                     ok "Source prepared with Fedora patches."
-                else
-                    warn "Could not find prepared source. Falling back to git clone."
                 fi
             else
                 warn "Could not find spec file. Falling back to git clone."
