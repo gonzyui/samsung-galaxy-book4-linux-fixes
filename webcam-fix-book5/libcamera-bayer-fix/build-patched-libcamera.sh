@@ -257,13 +257,26 @@ install_deps() {
 find_libcamera_libs() {
     LIBCAMERA_LIB_DIR=""
 
-    # Check common locations
-    for dir in /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib /usr/local/lib64 /usr/local/lib; do
-        if [[ -f "$dir/libcamera.so" ]] || ls "$dir"/libcamera.so.* &>/dev/null 2>&1; then
-            LIBCAMERA_LIB_DIR="$dir"
-            break
+    # First, try to detect which libcamera is ACTUALLY loaded at runtime
+    # (handles cases where /usr/local overrides /usr/lib)
+    if command -v qcam &>/dev/null; then
+        LIBCAMERA_LIB_DIR=$(ldd "$(which qcam)" 2>/dev/null | grep 'libcamera.so' | head -1 | sed 's|.*=> \(.*\)/libcamera.so.*|\1|' || true)
+        if [[ -n "$LIBCAMERA_LIB_DIR" ]]; then
+            info "Detected runtime library: $LIBCAMERA_LIB_DIR (from qcam)"
         fi
-    done
+    fi
+
+    # If runtime detection failed, check common locations
+    # IMPORTANT: /usr/local FIRST — it takes priority in linker search order
+    if [[ -z "$LIBCAMERA_LIB_DIR" ]]; then
+        for dir in /usr/local/lib64 /usr/local/lib/x86_64-linux-gnu /usr/local/lib \
+                   /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib; do
+            if [[ -f "$dir/libcamera.so" ]] || ls "$dir"/libcamera.so.* &>/dev/null 2>&1; then
+                LIBCAMERA_LIB_DIR="$dir"
+                break
+            fi
+        done
+    fi
 
     if [[ -z "$LIBCAMERA_LIB_DIR" ]]; then
         # Try ldconfig
@@ -274,9 +287,16 @@ find_libcamera_libs() {
         die "Cannot find libcamera.so — is libcamera installed?"
     fi
 
-    # Find IPA module directory
+    # Find IPA module directory (match the lib directory we found)
     LIBCAMERA_IPA_DIR=""
-    for dir in /usr/lib64/libcamera /usr/lib/x86_64-linux-gnu/libcamera /usr/lib/libcamera /usr/local/lib64/libcamera /usr/local/lib/libcamera; do
+    # First try under the same prefix as the library
+    local lib_prefix="${LIBCAMERA_LIB_DIR%%/lib*}"
+    for dir in "${lib_prefix}/lib64/libcamera" \
+               "${lib_prefix}/lib/x86_64-linux-gnu/libcamera" \
+               "${lib_prefix}/lib/libcamera" \
+               /usr/local/lib64/libcamera /usr/local/lib/x86_64-linux-gnu/libcamera \
+               /usr/local/lib/libcamera /usr/lib64/libcamera \
+               /usr/lib/x86_64-linux-gnu/libcamera /usr/lib/libcamera; do
         if [[ -d "$dir" ]]; then
             LIBCAMERA_IPA_DIR="$dir"
             break
@@ -450,14 +470,19 @@ detect_build_options() {
         -Ddocumentation=disabled
     )
 
-    # Check if system uses /usr/lib64 (Fedora) or /usr/lib/x86_64-linux-gnu (Debian)
+    # Match the prefix and libdir of the detected library location
+    local prefix="${LIBCAMERA_LIB_DIR%%/lib*}"
+    [[ -z "$prefix" ]] && prefix="/usr"
+
     if [[ "$LIBCAMERA_LIB_DIR" == */lib64* ]]; then
-        MESON_OPTIONS+=(-Dprefix=/usr -Dlibdir=lib64)
+        MESON_OPTIONS+=(-Dprefix="$prefix" -Dlibdir=lib64)
     elif [[ "$LIBCAMERA_LIB_DIR" == */x86_64-linux-gnu* ]]; then
-        MESON_OPTIONS+=(-Dprefix=/usr -Dlibdir=lib/x86_64-linux-gnu)
+        MESON_OPTIONS+=(-Dprefix="$prefix" -Dlibdir=lib/x86_64-linux-gnu)
     else
-        MESON_OPTIONS+=(-Dprefix=/usr)
+        MESON_OPTIONS+=(-Dprefix="$prefix")
     fi
+
+    info "Build prefix: $prefix (library target: $LIBCAMERA_LIB_DIR)"
 }
 
 # ─── Main ─────────────────────────────────────────────────────────────
