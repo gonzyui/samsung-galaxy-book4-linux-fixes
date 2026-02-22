@@ -447,6 +447,28 @@ if not patched:
         print("Searched for both v0.5 and v0.6+ patterns.", file=sys.stderr)
         sys.exit(1)
 
+# ── Second patch: Add diagnostic LOG at converter_/swIsp_ dispatch ──
+# This tells us which code path actually receives the inputCfg.
+# Pattern: "if (data->converter_) {"
+dispatch_pattern = r'if\s*\(data->converter_\)\s*\{'
+dm = re.search(dispatch_pattern, result)
+if dm:
+    line_start = result.rfind('\n', 0, dm.start()) + 1
+    indent = re.match(r'^(\s*)', result[line_start:]).group(1)
+
+    diag_log = (
+        f'LOG(SimplePipeline, Warning)\n'
+        f'{indent}\t<< "[BAYER-FIX] dispatch: converter_="\n'
+        f'{indent}\t<< (data->converter_ ? "YES" : "no")\n'
+        f'{indent}\t<< " swIsp_=" << (data->swIsp_ ? "YES" : "no")\n'
+        f'{indent}\t<< " inputCfg.pixelFormat=" << inputCfg.pixelFormat;\n'
+        f'{indent}'
+    )
+    result = result[:dm.start()] + diag_log + result[dm.start():]
+    print("Added dispatch diagnostic LOG before converter_/swIsp_ branch")
+else:
+    print("WARNING: Could not find converter_ dispatch to add diagnostic", file=sys.stderr)
+
 with open(filepath, 'w') as f:
     f.write(result)
 PYEOF
