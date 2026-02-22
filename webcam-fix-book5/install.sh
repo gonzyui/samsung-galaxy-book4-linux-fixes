@@ -13,8 +13,9 @@
 # Pipeline: LJCA -> intel_cvs -> OV02C10/OV02E10 -> libcamera -> PipeWire
 # No v4l2loopback or relay needed — libcamera talks to PipeWire directly.
 #
-# EXPERIMENTAL: Confirmed working on Galaxy Book5 360 (Fedora 42 + Ubuntu
-# 24.04), Dell XPS 13 9350 (Arch), and Lenovo X1 Carbon Gen13 (Fedora 42).
+# Confirmed working on Galaxy Book5 Pro 940XHA (Fedora 43), 960XHA (Ubuntu
+# 24.04), Galaxy Book5 360 (Fedora 42), Dell XPS 13 9350 (Arch), and
+# Lenovo X1 Carbon Gen13 (Fedora 42).
 #
 # For full documentation, see: README.md
 #
@@ -33,13 +34,11 @@ FORCE=false
 echo "=============================================="
 echo "  Samsung Galaxy Book5 Webcam Fix"
 echo "  Arch / Fedora / Ubuntu — Lunar Lake (IPU7)"
-echo ""
-echo "  *** EXPERIMENTAL — USE AT YOUR OWN RISK ***"
 echo "=============================================="
 echo ""
 
 # ──────────────────────────────────────────────
-# [1/13] Root check
+# [1/14] Root check
 # ──────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     echo "ERROR: Don't run this as root. The script will use sudo where needed."
@@ -47,9 +46,9 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [2/13] Distro detection
+# [2/14] Distro detection
 # ──────────────────────────────────────────────
-echo "[2/13] Detecting distro..."
+echo "[2/14] Detecting distro..."
 if command -v pacman >/dev/null 2>&1; then
     DISTRO="arch"
     echo "  ✓ Arch-based distro detected"
@@ -68,7 +67,7 @@ elif command -v dnf >/dev/null 2>&1; then
     fi
 elif command -v apt >/dev/null 2>&1; then
     DISTRO="ubuntu"
-    # Ubuntu doesn't ship libcamera 0.6+ (needed for IPU7) in its repos.
+    # Ubuntu doesn't ship libcamera 0.5.2+ (needed for IPU7) in its repos.
     # But users who build libcamera from source can still use this script.
     # Note: cam --version doesn't exist in all libcamera versions (e.g. 0.7.0).
     # Use the libcamera.so symlink version instead.
@@ -78,7 +77,7 @@ elif command -v apt >/dev/null 2>&1; then
         echo "ERROR: Ubuntu detected but libcamera is not installed."
         echo ""
         echo "       Ubuntu's repos ship libcamera 0.2.x which does NOT support IPU7."
-        echo "       You need libcamera 0.6+ built from source."
+        echo "       You need libcamera 0.5.2+ built from source."
         echo ""
         echo "       Build instructions: https://libcamera.org/getting-started.html"
         echo "       Reference: https://wiki.archlinux.org/title/Dell_XPS_13_(9350)_2024#Camera"
@@ -97,10 +96,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [3/13] Hardware detection
+# [3/14] Hardware detection
 # ──────────────────────────────────────────────
 echo ""
-echo "[3/13] Verifying hardware..."
+echo "[3/14] Verifying hardware..."
 
 # Check for Lunar Lake IPU7
 IPU7_FOUND=false
@@ -151,10 +150,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [4/13] Kernel version check
+# [4/14] Kernel version check
 # ──────────────────────────────────────────────
 echo ""
-echo "[4/13] Checking kernel version..."
+echo "[4/14] Checking kernel version..."
 KVER=$(uname -r)
 KMAJOR=$(echo "$KVER" | cut -d. -f1)
 KMINOR=$(echo "$KVER" | cut -d. -f2)
@@ -176,10 +175,10 @@ fi
 echo "  ✓ Kernel ${KVER} (>= 6.18 required)"
 
 # ──────────────────────────────────────────────
-# [5/13] Install distro packages
+# [5/14] Install distro packages
 # ──────────────────────────────────────────────
 echo ""
-echo "[5/13] Installing required packages..."
+echo "[5/14] Installing required packages..."
 
 if [[ "$DISTRO" == "arch" ]]; then
     # Check what's missing
@@ -249,10 +248,10 @@ elif [[ "$DISTRO" == "ubuntu" ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [6/13] Build intel-vision-drivers via DKMS
+# [6/14] Build intel-vision-drivers via DKMS
 # ──────────────────────────────────────────────
 echo ""
-echo "[6/13] Installing intel_cvs module via DKMS..."
+echo "[6/14] Installing intel_cvs module via DKMS..."
 
 # Check if already installed and working
 if dkms status "vision-driver/${VISION_DRIVER_VER}" 2>/dev/null | grep -q "installed"; then
@@ -372,10 +371,10 @@ SIGNEOF
 fi
 
 # ──────────────────────────────────────────────
-# [7/13] Samsung camera rotation fix (ipu-bridge DKMS)
+# [7/14] Samsung camera rotation fix (ipu-bridge DKMS)
 # ──────────────────────────────────────────────
 echo ""
-echo "[7/13] Installing ipu-bridge camera rotation fix..."
+echo "[7/14] Installing ipu-bridge camera rotation fix..."
 
 # Samsung Galaxy Book5 Pro models (940XHA, 960XHA) have their OV02E10 sensor
 # mounted upside-down, but Samsung's BIOS reports rotation=0. The kernel's
@@ -468,10 +467,47 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [8/13] Module load configuration
+# [8/14] OV02E10 bayer order fix (patched libcamera)
 # ──────────────────────────────────────────────
 echo ""
-echo "[8/13] Configuring module loading..."
+echo "[8/14] Checking for OV02E10 bayer order fix..."
+
+# Samsung Book5 models with the OV02E10 sensor mounted upside-down (rotation=180)
+# get purple/magenta tint after the ipu-bridge rotation fix is applied. This is
+# because the bayer pattern shifts when the sensor is flipped, but the kernel
+# driver doesn't update the media bus format code. A patched libcamera build
+# corrects the bayer order in the Simple pipeline handler's SoftISP debayer.
+
+if [[ "$SENSOR" == "ov02e10" ]] && $NEEDS_ROTATION_FIX; then
+    BAYER_FIX_BACKUP="/var/lib/libcamera-bayer-fix-backup"
+    if [[ -d "$BAYER_FIX_BACKUP" ]]; then
+        echo "  ✓ Bayer fix already installed (backup exists at $BAYER_FIX_BACKUP)"
+    else
+        echo "  OV02E10 + rotation fix detected — building patched libcamera..."
+        echo "  (This fixes purple/magenta tint caused by bayer pattern mismatch)"
+        echo ""
+        SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+        if sudo "$SCRIPT_DIR/libcamera-bayer-fix/build-patched-libcamera.sh"; then
+            echo "  ✓ Patched libcamera installed (bayer order fix)"
+        else
+            echo ""
+            echo "  ⚠ Bayer fix build failed — camera will work but may have purple tint."
+            echo "    You can retry later: sudo ./libcamera-bayer-fix/build-patched-libcamera.sh"
+        fi
+    fi
+else
+    if [[ "$SENSOR" == "ov02e10" ]]; then
+        echo "  ✓ OV02E10 detected but no rotation fix needed — bayer fix not required"
+    else
+        echo "  ✓ Not OV02E10 with rotation fix — bayer fix not needed"
+    fi
+fi
+
+# ──────────────────────────────────────────────
+# [9/14] Module load configuration
+# ──────────────────────────────────────────────
+echo ""
+echo "[9/14] Configuring module loading..."
 
 # The full module chain for IPU7 camera on Lunar Lake:
 # usb_ljca -> gpio_ljca -> intel_cvs -> ov02c10/ov02e10
@@ -501,10 +537,10 @@ EOF
 echo "  ✓ Created /etc/modprobe.d/intel-ipu7-camera.conf"
 
 # ──────────────────────────────────────────────
-# [9/13] libcamera IPA module path
+# [10/14] libcamera IPA module path
 # ──────────────────────────────────────────────
 echo ""
-echo "[9/13] Configuring libcamera environment..."
+echo "[10/14] Configuring libcamera environment..."
 
 # Determine IPA path based on distro
 if [[ "$DISTRO" == "fedora" ]]; then
@@ -571,10 +607,10 @@ fi
 echo "  ✓ Created /etc/profile.d/libcamera-ipa.sh"
 
 # ──────────────────────────────────────────────
-# [10/13] Hide raw IPU7 V4L2 nodes from PipeWire
+# [11/14] Hide raw IPU7 V4L2 nodes from PipeWire
 # ──────────────────────────────────────────────
 echo ""
-echo "[10/13] Configuring WirePlumber to hide raw IPU7 V4L2 nodes..."
+echo "[11/14] Configuring WirePlumber to hide raw IPU7 V4L2 nodes..."
 
 # IPU7 exposes 32 raw V4L2 capture nodes that output bayer data unusable by
 # apps. Without this rule, PipeWire creates 32 "ipu7" camera sources that
@@ -617,10 +653,10 @@ if ! $WP_RULE_INSTALLED; then
 fi
 
 # ──────────────────────────────────────────────
-# [11/13] Install sensor color tuning file
+# [12/14] Install sensor color tuning file
 # ──────────────────────────────────────────────
 echo ""
-echo "[11/13] Installing libcamera color tuning file..."
+echo "[12/14] Installing libcamera color tuning file..."
 
 # libcamera's Software ISP uses uncalibrated.yaml by default, which has no
 # color correction matrix (CCM) — producing near-grayscale or green-tinted
@@ -665,10 +701,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [12/13] Load modules and test
+# [13/14] Load modules and test
 # ──────────────────────────────────────────────
 echo ""
-echo "[12/13] Loading modules and testing..."
+echo "[13/14] Loading modules and testing..."
 
 # Try to load LJCA and intel_cvs now
 for mod in usb_ljca gpio_ljca; do
@@ -707,14 +743,12 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [13/13] Summary
+# [14/14] Summary
 # ──────────────────────────────────────────────
 echo ""
 echo "=============================================="
 echo "  Installation complete — reboot required"
 echo "=============================================="
-echo ""
-echo "  *** EXPERIMENTAL — This has not been verified on Samsung Galaxy Book5. ***"
 echo ""
 echo "  After rebooting, test with:"
 echo "    cam -l                      # List cameras (libcamera)"
@@ -733,8 +767,8 @@ echo "    - Color quality: A light color correction profile is installed, but im
 echo "      quality may not match Windows. Full sensor calibration is pending upstream."
 echo "    - Vertically flipped image: Fixed on Samsung 940XHA/960XHA via ipu-bridge"
 echo "      DKMS patch. Other models may still be affected."
-echo "    - Firefox may conflict with other libcamera apps (qcam). If the camera"
-echo "      stops working, try rebooting."
+echo "    - Only one app can use the camera at a time. If Firefox is using it,"
+echo "      qcam won't work (and vice versa). Close the first app or reboot."
 echo "    - If PipeWire doesn't see the camera, try: systemctl --user restart pipewire"
 echo ""
 echo "  Configuration files created:"
@@ -747,6 +781,9 @@ if [[ -d "$IPU_BRIDGE_FIX_SRC" ]]; then
 echo "    ${IPU_BRIDGE_FIX_SRC}/ (ipu-bridge rotation fix DKMS source)"
 echo "    /usr/local/sbin/ipu-bridge-check-upstream.sh"
 echo "    /etc/systemd/system/ipu-bridge-check-upstream.service"
+fi
+if [[ -d "/var/lib/libcamera-bayer-fix-backup" ]]; then
+echo "    /var/lib/libcamera-bayer-fix-backup/ (original libcamera backup)"
 fi
 echo ""
 echo "  To uninstall: ./uninstall.sh"

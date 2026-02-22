@@ -1,11 +1,9 @@
-# Fix: Samsung Galaxy Book5 Webcam on Arch / Fedora / Ubuntu (Intel IPU7 / OV02C10 / Lunar Lake)
+# Fix: Samsung Galaxy Book5 Webcam on Arch / Fedora / Ubuntu (Intel IPU7 / OV02C10 / OV02E10 / Lunar Lake)
 
-> **!! EXPERIMENTAL — UNTESTED ON SAMSUNG HARDWARE — USE AT YOUR OWN RISK !!**
->
-> This fix has **NOT been tested on any Samsung Galaxy Book5 model**. It is based on research from working setups on other Lunar Lake laptops (Dell XPS 13 9350, Lenovo X1 Carbon Gen13) and one unverified Book5 360 report on Fedora 42. **It may not work, may require manual adjustments, or could potentially cause system instability.** If you try it, please report your results so we can improve it.
+> **Confirmed working** on Samsung Galaxy Book5 Pro 940XHA (Fedora 43), 960XHA (Ubuntu 24.04), Galaxy Book5 360 (Fedora 42), Dell XPS 13 9350 (Arch), and Lenovo X1 Carbon Gen13 (Fedora 42). If you test on another model, please open an issue with your results.
 
-**Status:** Experimental / Community testing
-**Supported distros:** Arch-based (CachyOS, Manjaro, EndeavourOS), Fedora 42+, and Ubuntu (with libcamera 0.6+ built from source)
+**Status:** Confirmed working
+**Supported distros:** Arch-based (CachyOS, Manjaro, EndeavourOS), Fedora 42+, and Ubuntu (with libcamera 0.5.2+ built from source)
 **Hardware:** Intel IPU7 (Lunar Lake, PCI ID `8086:645d` or `8086:6457`), OV02C10 (`OVTI02C1`) or OV02E10 (`OVTI02E1`) sensor
 
 ---
@@ -39,9 +37,9 @@ usb_ljca + gpio_ljca  →  intel_cvs (DKMS)  →  OV02C10/OV02E10  →  libcamer
 
 | Distro | Status | Notes |
 |--------|--------|-------|
-| **Arch / CachyOS / Manjaro** | Supported | libcamera 0.6+ in repos |
-| **Fedora 42+** | Supported | libcamera 0.6+ in repos |
-| **Ubuntu** | Supported (with manual steps) | Requires libcamera 0.6+ built from source and kernel 6.18+ compiled manually. See [Ubuntu instructions](#ubuntu-specific-setup) below. |
+| **Arch / CachyOS / Manjaro** | Confirmed working | libcamera 0.5.2+ in repos |
+| **Fedora 42+** | Confirmed working | libcamera 0.5.2+ in repos (0.5.2 on F43, 0.7.0 on F44) |
+| **Ubuntu** | Confirmed working (manual steps) | Requires libcamera 0.5.2+ built from source and kernel 6.18+. See [Ubuntu instructions](#ubuntu-specific-setup) below. |
 
 ---
 
@@ -49,7 +47,7 @@ usb_ljca + gpio_ljca  →  intel_cvs (DKMS)  →  OV02C10/OV02E10  →  libcamer
 
 - **Kernel 6.18+** — IPU7, USBIO, and OV02C10 drivers are all in-tree starting from 6.18
 - **Lunar Lake hardware** — Intel IPU7 (PCI ID `8086:645d` or `8086:6457`)
-- **libcamera 0.6+** — Available in Arch/Fedora repos; must be built from source on Ubuntu
+- **libcamera 0.5.2+** — Available in Arch/Fedora repos; must be built from source on Ubuntu
 - **Internet connection** — To download the intel_cvs DKMS module from GitHub
 
 ---
@@ -59,9 +57,9 @@ usb_ljca + gpio_ljca  →  intel_cvs (DKMS)  →  OV02C10/OV02E10  →  libcamer
 Ubuntu 24.04 ships kernel 6.17 and libcamera 0.2.x — both too old for IPU7. To use this fix on Ubuntu, you need to manually provide:
 
 1. **Kernel 6.18+** — Compile from source or install a [mainline kernel build](https://kernel.ubuntu.com/mainline/). One user confirmed kernel 6.19.2 works.
-2. **libcamera 0.6+** — Build from source following the [libcamera getting started guide](https://libcamera.org/getting-started.html). Ubuntu's apt packages are too old.
+2. **libcamera 0.5.2+** — Build from source following the [libcamera getting started guide](https://libcamera.org/getting-started.html). Ubuntu's apt packages are too old.
 
-The installer will detect Ubuntu and **check your libcamera version** at runtime. If libcamera 0.6+ is found (however you installed it), the script will proceed — it skips the package install step and only sets up the DKMS module and configuration files.
+The installer will detect Ubuntu and **check your libcamera version** at runtime. If libcamera 0.5.2+ is found (however you installed it), the script will proceed — it skips the package install step and only sets up the DKMS module and configuration files.
 
 **Reference:** The [Arch Wiki Dell XPS 13 9350 camera page](https://wiki.archlinux.org/title/Dell_XPS_13_(9350)_2024#Camera) has a detailed walkthrough for the same hardware. The steps can be adapted for Ubuntu.
 
@@ -128,6 +126,28 @@ Some Samsung Galaxy Book5 models (940XHA, 960XHA) have the OV02E10 sensor mounte
 
 If you still see a flipped image on a different model, the rotation metadata for that platform may be incorrect or missing.
 
+### OV02E10 purple / magenta tint
+
+Samsung Book5 models with the OV02E10 sensor mounted upside-down (940XHA, 960XHA) can get purple/magenta tint after the rotation fix is applied. This happens because the bayer pattern shifts when the sensor is flipped horizontally, but the OV02E10 kernel driver doesn't update the media bus format code to reflect the new pattern. The SoftISP debayer then uses the wrong bayer order, producing incorrect colors.
+
+**The installer automatically builds and installs a patched libcamera** for OV02E10 systems that need the rotation fix. The patch overrides the bayer order in the Simple pipeline handler based on the actual sensor transform (HFlip-only XOR). Original library files are backed up to `/var/lib/libcamera-bayer-fix-backup/` and can be restored with the uninstaller.
+
+If you need to reinstall or update the bayer fix manually:
+```bash
+sudo ./libcamera-bayer-fix/build-patched-libcamera.sh
+```
+
+To uninstall just the bayer fix (restore original libcamera):
+```bash
+sudo ./libcamera-bayer-fix/build-patched-libcamera.sh --uninstall
+```
+
+**Note:** System package updates may overwrite the patched library. If purple tint returns after an update, re-run the bayer fix script.
+
+### Concurrent camera access (only one app at a time)
+
+libcamera on IPU7 currently supports only one client at a time. If Firefox is using the camera, qcam (or any other app) cannot access it simultaneously — and vice versa. This is the root cause of "Firefox conflicts with qcam" reports. Close the first app before opening another, or reboot if the camera becomes unresponsive.
+
 ### Browsers / apps don't see the camera (Ubuntu source builds)
 
 On Ubuntu, if you built PipeWire and libcamera from source (installed to `/usr/local`), PipeWire may not find the libcamera SPA plugin. The installer auto-detects this and sets `SPA_PLUGIN_DIR` in `/etc/environment.d/libcamera-ipa.conf`. **A reboot is required** for PipeWire's systemd user service to pick up the new environment variable.
@@ -137,10 +157,6 @@ If apps still don't see the camera after reboot, verify PipeWire found the plugi
 wpctl status | grep -A 15 "Video"
 # Should show a libcamera device, not just v4l2 entries
 ```
-
-### Firefox / browser conflicts with qcam
-
-One user reported that opening the camera in Firefox kills the image in qcam, requiring a reboot to recover. This appears to be a resource contention issue between PipeWire and direct libcamera access. Avoid running qcam and browser-based camera access simultaneously.
 
 ### Browser doesn't show camera / no permission prompt
 
@@ -184,20 +200,19 @@ If that doesn't help, verify that `pipewire-libcamera` (Arch) or `pipewire-plugi
 
 | Device | Platform | Distro | Kernel | Status | Notes |
 |--------|----------|--------|--------|--------|-------|
-| Dell XPS 13 9350 | Lunar Lake | Arch | 6.18+ | Working | OV02C10 sensor |
-| Lenovo X1 Carbon Gen13 | Lunar Lake | Fedora 42 | 6.18+ | Working | Confirmed by community |
-| Samsung Galaxy Book5 360 | Lunar Lake | Fedora 42 | 6.18+ | Working (browsers) | Community report |
-| Samsung Galaxy Book5 Pro 16" (960XHA) | Lunar Lake | Ubuntu 24.04 | 6.19.2 | Working (Firefox, qcam) | OV02E10 sensor. Kernel + libcamera from source. |
-| Samsung Galaxy Book5 Pro (940XHA) | Lunar Lake | Fedora 43 | latest | Working (natively) | OV02E10 sensor. Works without installer. Image vertically flipped. |
-| Samsung Galaxy Book5 Pro | Lunar Lake | — | — | **UNTESTED** | Other distros — please report if you try |
-| Samsung Galaxy Book5 Pro 360 | Lunar Lake | — | — | **UNTESTED** | Please report if you try |
+| Samsung Galaxy Book5 Pro (940XHA) | Lunar Lake | Fedora 43/44 | 6.18+ | **Working** | OV02E10. Correct colors + orientation with bayer fix. |
+| Samsung Galaxy Book5 Pro 16" (960XHA) | Lunar Lake | Ubuntu 24.04 | 6.19.2 | **Working** | OV02E10. Correct colors + orientation with bayer fix. Cheese also works. |
+| Samsung Galaxy Book5 360 | Lunar Lake | Fedora 42 | 6.18+ | **Working** | Community report (browsers) |
+| Dell XPS 13 9350 | Lunar Lake | Arch | 6.18+ | **Working** | OV02C10 sensor |
+| Lenovo X1 Carbon Gen13 | Lunar Lake | Fedora 42 | 6.18+ | **Working** | Confirmed by community |
+| Samsung Galaxy Book5 Pro 360 | Lunar Lake | — | — | **Untested** | Please report if you try |
 
 **If you test this on a Galaxy Book5, please open an issue with:**
 - Your exact model
 - Distro and kernel version
 - Output of `cam -l`
 - Whether apps (Firefox, Zoom, etc.) can see the camera
-- Any error messages from `journalctl -b -k | grep -i "ipu\|cvs\|ov02c10\|libcamera"`
+- Any error messages from `journalctl -b -k | grep -i "ipu\|cvs\|ov02c10\|ov02e10\|libcamera"`
 
 ---
 
@@ -211,7 +226,7 @@ If that doesn't help, verify that `pipewire-libcamera` (Arch) or `pipewire-plugi
 | **Out-of-tree module** | None (IVSC modules are in-tree) | `intel_cvs` via DKMS |
 | **Initramfs changes** | Yes (IVSC boot race fix) | No |
 | **Supported distros** | Ubuntu only | Arch, Fedora, Ubuntu (source build) |
-| **Maturity** | Tested and confirmed | Experimental |
+| **Maturity** | Tested and confirmed | Tested and confirmed |
 | **Directory** | `webcam-fix/` | `webcam-fix-book5/` |
 
 ---
@@ -234,8 +249,9 @@ The install script creates these files:
 | `/usr/src/ipu-bridge-fix-1.0/` | DKMS source for patched ipu-bridge (Samsung 940XHA/960XHA only) |
 | `/usr/local/sbin/ipu-bridge-check-upstream.sh` | Auto-removes ipu-bridge DKMS when upstream kernel has the fix |
 | `/etc/systemd/system/ipu-bridge-check-upstream.service` | Runs upstream check on boot |
+| `/var/lib/libcamera-bayer-fix-backup/` | Backup of original libcamera files (OV02E10 bayer fix only) |
 
-The ipu-bridge-fix files are only installed on Samsung 940XHA/960XHA models and auto-remove when the kernel includes the Samsung rotation entries. All files are removed by `uninstall.sh`.
+The ipu-bridge-fix and bayer-fix files are only installed on Samsung 940XHA/960XHA models with OV02E10 sensor. The ipu-bridge fix auto-removes when the kernel includes the Samsung rotation entries. All files are removed by `uninstall.sh`.
 
 ---
 
@@ -279,7 +295,9 @@ On Arch with Secure Boot, you'll need to sign the module manually or use a tool 
 
 ## Credits
 
-- **[Andycodeman](https://github.com/Andycodeman)** — Installer script, packaging, documentation
+- **[Andycodeman](https://github.com/Andycodeman)** — Installer script, packaging, bayer fix, documentation
+- **[david-bartlett](https://github.com/david-bartlett)** — CCM color tuning, testing on 940XHA (Fedora)
+- **[jn-simonnet](https://github.com/jn-simonnet)** — Testing and verification on 960XHA (Ubuntu)
 - **[Intel vision-drivers](https://github.com/intel/vision-drivers)** — CVS kernel module (DKMS)
 - **libcamera project** — Open-source camera stack with IPU7 support
 
