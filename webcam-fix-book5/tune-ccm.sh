@@ -43,6 +43,20 @@ for dir in /usr/local/lib/*/libcamera/ipa /usr/local/lib/libcamera/ipa \
     fi
 done
 
+# Detect libcamera version for Lut vs Adjust algorithm
+# v0.5.x uses Lut; v0.6+ uses Adjust (replaces Lut)
+USE_LUT=false
+LIBCAMERA_VER=$(ls -l /usr/local/lib/*/libcamera.so.* /usr/local/lib/libcamera.so.* \
+    /usr/lib64/libcamera.so.* /usr/lib/*/libcamera.so.* /usr/lib/libcamera.so.* 2>/dev/null \
+    | grep -oP 'libcamera\.so\.\K[0-9]+\.[0-9]+' | head -1 || true)
+if [[ -n "$LIBCAMERA_VER" ]]; then
+    LIBCAMERA_MINOR=$(echo "$LIBCAMERA_VER" | cut -d. -f2)
+    if [[ "$LIBCAMERA_MINOR" -lt 6 ]] 2>/dev/null; then
+        USE_LUT=true
+        echo "  libcamera ${LIBCAMERA_VER} detected — using Lut (not Adjust)"
+    fi
+fi
+
 # Back up the current tuning file
 BACKUP=""
 if [[ -f "$TUNING_FILE" ]]; then
@@ -283,8 +297,12 @@ apply_preset() {
         sleep 0.5  # let camera device settle after close
     fi
 
-    # Write tuning file
-    echo "$yaml" | sudo tee "$TUNING_FILE" > /dev/null
+    # Write tuning file (swap Adjust/Lut based on libcamera version)
+    if [[ "$USE_LUT" == "true" ]]; then
+        echo "$yaml" | sed 's/^  - Adjust:/  - Lut:/' | sudo tee "$TUNING_FILE" > /dev/null
+    else
+        echo "$yaml" | sudo tee "$TUNING_FILE" > /dev/null
+    fi
     sync  # ensure file is flushed to disk before qcam reads it
 
     # Launch qcam in background (stderr visible for debugging)

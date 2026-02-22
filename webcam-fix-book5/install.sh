@@ -55,22 +55,14 @@ if command -v pacman >/dev/null 2>&1; then
     echo "  ✓ Arch-based distro detected"
 elif command -v dnf >/dev/null 2>&1; then
     DISTRO="fedora"
-    # Check libcamera version — IPU7 + ov02e10 requires 0.6+ for proper
-    # Simple pipeline handler support, sensor helpers, and Software ISP.
-    # Fedora 44 ships 0.7.0; Fedora 43 ships 0.5.2 which is too old.
+    # Check libcamera version — IPU7 needs libcamera 0.5.2+ with Simple pipeline
+    # handler and Software ISP. Fedora 43 ships 0.5.2, Fedora 44 ships 0.7.0.
     LIBCAMERA_VER=$(ls -l /usr/lib64/libcamera.so.* /usr/lib/libcamera.so.* 2>/dev/null \
         | grep -oP 'libcamera\.so\.\K[0-9]+\.[0-9]+' | head -1 || true)
     if [[ -n "$LIBCAMERA_VER" ]]; then
         LIBCAMERA_MAJOR=$(echo "$LIBCAMERA_VER" | cut -d. -f1)
         LIBCAMERA_MINOR=$(echo "$LIBCAMERA_VER" | cut -d. -f2)
-        if [[ "$LIBCAMERA_MAJOR" -eq 0 ]] && [[ "$LIBCAMERA_MINOR" -lt 6 ]]; then
-            echo "ERROR: libcamera ${LIBCAMERA_VER} is too old. IPU7 requires libcamera 0.6+."
-            echo ""
-            echo "       Fedora 44+ ships libcamera 0.7.0 which supports IPU7."
-            echo "       Upgrade with: sudo dnf upgrade --releasever=44"
-            exit 1
-        fi
-        echo "  ✓ Fedora detected with libcamera ${LIBCAMERA_VER} (>= 0.6 required)"
+        echo "  ✓ Fedora detected with libcamera ${LIBCAMERA_VER}"
     else
         echo "  ✓ Fedora detected (libcamera version will be checked after package install)"
     fi
@@ -97,14 +89,7 @@ elif command -v apt >/dev/null 2>&1; then
     fi
     LIBCAMERA_MAJOR=$(echo "$LIBCAMERA_VER" | cut -d. -f1)
     LIBCAMERA_MINOR=$(echo "$LIBCAMERA_VER" | cut -d. -f2)
-    if [[ "$LIBCAMERA_MAJOR" -eq 0 ]] && [[ "$LIBCAMERA_MINOR" -lt 6 ]]; then
-        echo "ERROR: libcamera ${LIBCAMERA_VER} is too old. IPU7 requires libcamera 0.6+."
-        echo ""
-        echo "       Ubuntu's repos ship an older version. You need to build 0.6+ from source."
-        echo "       Build instructions: https://libcamera.org/getting-started.html"
-        exit 1
-    fi
-    echo "  ✓ Ubuntu detected with libcamera ${LIBCAMERA_VER} (>= 0.6 required)"
+    echo "  ✓ Ubuntu detected with libcamera ${LIBCAMERA_VER}"
     echo "  ⚠ Ubuntu support is experimental — libcamera was not installed from repos"
 else
     echo "ERROR: Unsupported distro. This script requires pacman (Arch), dnf (Fedora), or apt (Ubuntu)."
@@ -661,12 +646,13 @@ if [[ -n "$TUNING_DIR" ]]; then
     if [[ -f "$SCRIPT_DIR/$TUNING_FILE" ]]; then
         sudo cp "$SCRIPT_DIR/$TUNING_FILE" "$TUNING_DIR/$TUNING_FILE"
 
-        # Remove Adjust algorithm for libcamera < 0.6 (doesn't exist in older versions)
-        if [[ -n "${LIBCAMERA_MINOR:-}" && "${LIBCAMERA_MINOR}" -lt 6 ]] 2>/dev/null; then
+        # libcamera 0.5.x uses Lut; 0.6+ uses Adjust (replaces Lut)
+        if [[ -n "${LIBCAMERA_MINOR:-}" ]] && [[ "${LIBCAMERA_MINOR}" -lt 6 ]] 2>/dev/null; then
             sudo sed -i '/^  - Adjust:/d' "$TUNING_DIR/$TUNING_FILE"
-            echo "  ✓ Installed $TUNING_FILE → $TUNING_DIR/ (Adjust removed for v0.5)"
+            echo "  ✓ Installed $TUNING_FILE → $TUNING_DIR/ (v0.5: using Lut)"
         else
-            echo "  ✓ Installed $TUNING_FILE → $TUNING_DIR/"
+            sudo sed -i '/^  - Lut:/d' "$TUNING_DIR/$TUNING_FILE"
+            echo "  ✓ Installed $TUNING_FILE → $TUNING_DIR/ (v0.6+: using Adjust)"
         fi
         echo "    (CCM tuned by david-bartlett on Galaxy Book5 Pro)"
         echo "    Use ./tune-ccm.sh to interactively find the best color preset"

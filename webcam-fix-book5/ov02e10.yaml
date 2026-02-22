@@ -6,9 +6,10 @@
 # Counteracts green tint by boosting R/B channels with cross-channel warmth.
 # Use tune-ccm.sh to interactively find the best color preset.
 #
-# NOTE: libcamera <0.6.0 does not have the Adjust algorithm.
-# The installer handles this automatically, but if editing manually,
-# remove the "- Adjust:" line for libcamera 0.5.x.
+# NOTE: libcamera 0.5.x uses Lut; 0.6+ uses Adjust (replaces Lut).
+# The installer handles this automatically, but if editing manually:
+#   v0.5.x: keep Lut, remove Adjust
+#   v0.6+:  keep Adjust, remove Lut
 %YAML 1.1
 ---
 version: 1
@@ -21,6 +22,7 @@ algorithms:
           ccm: [ 1.1, 0.1, 0,
                  0, 0.99, 0.01,
                  0.1, 0.15, 0.95 ]
+  - Lut:
   - Adjust:
   - Agc:
 ...
