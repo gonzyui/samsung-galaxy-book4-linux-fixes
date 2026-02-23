@@ -167,6 +167,12 @@ Browsers require explicit PipeWire camera support to be enabled:
 media.webrtc.camera.allow-pipewire = true
 ```
 
+To get full resolution (Firefox defaults to 640x480 over WebRTC/PipeWire), also set:
+```
+media.navigator.video.default_width = 1920
+media.navigator.video.default_height = 1080
+```
+
 **Chrome / Chromium:** Navigate to `chrome://flags` and enable:
 ```
 #enable-webrtc-pipewire-camera
