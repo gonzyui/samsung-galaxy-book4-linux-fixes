@@ -10,6 +10,9 @@ set -euo pipefail
 
 CARD_LABEL="Camera Relay"
 PID_FILE="${XDG_RUNTIME_DIR:-/tmp}/camera-relay.pid"
+CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+CAMERA_CACHE="${CACHE_DIR}/camera-relay-camera-name"
+DEVICE_CACHE="${CACHE_DIR}/camera-relay-loopback-dev"
 SERVICE_DIR="${HOME}/.config/systemd/user"
 SERVICE_NAME="camera-relay.service"
 LOOPBACK_CONF="/etc/modprobe.d/99-camera-relay-loopback.conf"
@@ -21,11 +24,10 @@ info() { echo "[camera-relay] $*"; }
 warn() { echo "[camera-relay] WARNING: $*" >&2; }
 
 detect_camera_name() {
-    # Check cached name first (avoids repeated camera probing during status polls)
-    local cache_file="${XDG_RUNTIME_DIR:-/tmp}/camera-relay-camera-name"
-    if [[ -f "$cache_file" ]]; then
+    # Check cached name first (avoids camera probing which disrupts active streams)
+    if [[ -f "$CAMERA_CACHE" ]]; then
         local cached
-        cached=$(cat "$cache_file" 2>/dev/null)
+        cached=$(cat "$CAMERA_CACHE" 2>/dev/null)
         if [[ -n "$cached" ]]; then
             echo "$cached"
             return 0
@@ -39,7 +41,7 @@ detect_camera_name() {
         local name
         name=$(pw-cli ls Node 2>/dev/null | grep -oP 'object\.path = "libcamera:\K[^"]+' | head -1)
         if [[ -n "$name" ]]; then
-            echo "$name" > "$cache_file"
+            echo "$name" > "$CAMERA_CACHE"
             echo "$name"
             return 0
         fi
@@ -50,7 +52,7 @@ detect_camera_name() {
         local name
         name=$(cam -l 2>/dev/null | grep -oP "'[^']+'" | head -1 | tr -d "'")
         if [[ -n "$name" ]]; then
-            echo "$name" > "$cache_file"
+            echo "$name" > "$CAMERA_CACHE"
             echo "$name"
             return 0
         fi
@@ -182,6 +184,11 @@ cmd_start() {
     camera_name=$(detect_camera_name) || die "No libcamera device found. Is the camera driver loaded?"
     loopback_dev=$(detect_loopback_device) || die "No v4l2loopback device found"
 
+    # Cache values for passive status checks (systray polls status frequently
+    # and any camera/PipeWire probing disrupts the active stream)
+    echo "$camera_name" > "$CAMERA_CACHE"
+    echo "$loopback_dev" > "$DEVICE_CACHE"
+
     info "Camera:   $camera_name"
     info "Loopback: $loopback_dev"
 
@@ -271,6 +278,7 @@ cmd_stop() {
     fi
 
     rm -f "$PID_FILE"
+    # Keep cache files so status can still show last-known camera/device
     info "Relay stopped"
 }
 
@@ -286,8 +294,15 @@ cmd_status() {
     if is_persistent; then
         persistent=true
     fi
-    camera=$(detect_camera_name 2>/dev/null) || camera="(not detected)"
-    device=$(detect_loopback_device 2>/dev/null) || device="(not loaded)"
+
+    # Read from cache files written by cmd_start() — NEVER probe camera or
+    # PipeWire here.  The systray polls status every 5 seconds and any
+    # libcamera/PipeWire interaction disrupts the active stream (image flip,
+    # color corruption on the Simple pipeline handler).
+    camera=$(cat "$CAMERA_CACHE" 2>/dev/null) || camera=""
+    [[ -z "$camera" ]] && camera="(not detected)"
+    device=$(cat "$DEVICE_CACHE" 2>/dev/null) || device=""
+    [[ -z "$device" ]] && device="(not loaded)"
 
     if $json; then
         printf '{"running":%s,"persistent":%s,"camera":"%s","device":"%s"}\n' \
