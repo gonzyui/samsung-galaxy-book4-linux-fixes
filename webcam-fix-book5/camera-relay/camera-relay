@@ -271,7 +271,7 @@ cmd_stop() {
     local waited=0
     while kill -0 "$pid" 2>/dev/null && (( waited < 5 )); do
         sleep 1
-        (( waited++ ))
+        (( ++waited ))
     done
     if kill -0 "$pid" 2>/dev/null; then
         kill -9 "$pid" 2>/dev/null || true
