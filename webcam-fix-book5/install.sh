@@ -38,7 +38,7 @@ echo "=============================================="
 echo ""
 
 # ──────────────────────────────────────────────
-# [1/14] Root check
+# [1/15] Root check
 # ──────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     echo "ERROR: Don't run this as root. The script will use sudo where needed."
@@ -46,9 +46,9 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [2/14] Distro detection
+# [2/15] Distro detection
 # ──────────────────────────────────────────────
-echo "[2/14] Detecting distro..."
+echo "[2/15] Detecting distro..."
 if command -v pacman >/dev/null 2>&1; then
     DISTRO="arch"
     echo "  ✓ Arch-based distro detected"
@@ -96,10 +96,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [3/14] Hardware detection
+# [3/15] Hardware detection
 # ──────────────────────────────────────────────
 echo ""
-echo "[3/14] Verifying hardware..."
+echo "[3/15] Verifying hardware..."
 
 # Check for Lunar Lake IPU7
 IPU7_FOUND=false
@@ -150,10 +150,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [4/14] Kernel version check
+# [4/15] Kernel version check
 # ──────────────────────────────────────────────
 echo ""
-echo "[4/14] Checking kernel version..."
+echo "[4/15] Checking kernel version..."
 KVER=$(uname -r)
 KMAJOR=$(echo "$KVER" | cut -d. -f1)
 KMINOR=$(echo "$KVER" | cut -d. -f2)
@@ -175,10 +175,10 @@ fi
 echo "  ✓ Kernel ${KVER} (>= 6.18 required)"
 
 # ──────────────────────────────────────────────
-# [5/14] Install distro packages
+# [5/15] Install distro packages
 # ──────────────────────────────────────────────
 echo ""
-echo "[5/14] Installing required packages..."
+echo "[5/15] Installing required packages..."
 
 if [[ "$DISTRO" == "arch" ]]; then
     # Check what's missing
@@ -248,10 +248,10 @@ elif [[ "$DISTRO" == "ubuntu" ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [6/14] Build intel-vision-drivers via DKMS
+# [6/15] Build intel-vision-drivers via DKMS
 # ──────────────────────────────────────────────
 echo ""
-echo "[6/14] Installing intel_cvs module via DKMS..."
+echo "[6/15] Installing intel_cvs module via DKMS..."
 
 # Check if already installed and working
 if dkms status "vision-driver/${VISION_DRIVER_VER}" 2>/dev/null | grep -q "installed"; then
@@ -371,10 +371,10 @@ SIGNEOF
 fi
 
 # ──────────────────────────────────────────────
-# [7/14] Samsung camera rotation fix (ipu-bridge DKMS)
+# [7/15] Samsung camera rotation fix (ipu-bridge DKMS)
 # ──────────────────────────────────────────────
 echo ""
-echo "[7/14] Installing ipu-bridge camera rotation fix..."
+echo "[7/15] Installing ipu-bridge camera rotation fix..."
 
 # Samsung Galaxy Book5 Pro models (940XHA, 960XHA) have their OV02E10 sensor
 # mounted upside-down, but Samsung's BIOS reports rotation=0. The kernel's
@@ -467,10 +467,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [8/14] OV02E10 bayer order fix (patched libcamera)
+# [8/15] OV02E10 bayer order fix (patched libcamera)
 # ──────────────────────────────────────────────
 echo ""
-echo "[8/14] Checking for OV02E10 bayer order fix..."
+echo "[8/15] Checking for OV02E10 bayer order fix..."
 
 # Samsung Book5 models with the OV02E10 sensor mounted upside-down (rotation=180)
 # get purple/magenta tint after the ipu-bridge rotation fix is applied. This is
@@ -504,10 +504,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [9/14] Module load configuration
+# [9/15] Module load configuration
 # ──────────────────────────────────────────────
 echo ""
-echo "[9/14] Configuring module loading..."
+echo "[9/15] Configuring module loading..."
 
 # The full module chain for IPU7 camera on Lunar Lake:
 # usb_ljca -> gpio_ljca -> intel_cvs -> ov02c10/ov02e10
@@ -537,10 +537,10 @@ EOF
 echo "  ✓ Created /etc/modprobe.d/intel-ipu7-camera.conf"
 
 # ──────────────────────────────────────────────
-# [10/14] libcamera IPA module path
+# [10/15] libcamera IPA module path
 # ──────────────────────────────────────────────
 echo ""
-echo "[10/14] Configuring libcamera environment..."
+echo "[10/15] Configuring libcamera environment..."
 
 # Determine IPA path based on distro
 if [[ "$DISTRO" == "fedora" ]]; then
@@ -607,10 +607,10 @@ fi
 echo "  ✓ Created /etc/profile.d/libcamera-ipa.sh"
 
 # ──────────────────────────────────────────────
-# [11/14] Hide raw IPU7 V4L2 nodes from PipeWire
+# [11/15] Hide raw IPU7 V4L2 nodes from PipeWire
 # ──────────────────────────────────────────────
 echo ""
-echo "[11/14] Configuring WirePlumber to hide raw IPU7 V4L2 nodes..."
+echo "[11/15] Configuring WirePlumber to hide raw IPU7 V4L2 nodes..."
 
 # IPU7 exposes 32 raw V4L2 capture nodes that output bayer data unusable by
 # apps. Without this rule, PipeWire creates 32 "ipu7" camera sources that
@@ -653,10 +653,10 @@ if ! $WP_RULE_INSTALLED; then
 fi
 
 # ──────────────────────────────────────────────
-# [12/14] Install sensor color tuning file
+# [12/15] Install sensor color tuning file
 # ──────────────────────────────────────────────
 echo ""
-echo "[12/14] Installing libcamera color tuning file..."
+echo "[12/15] Installing libcamera color tuning file..."
 
 # libcamera's Software ISP uses uncalibrated.yaml by default, which has no
 # color correction matrix (CCM) — producing near-grayscale or green-tinted
@@ -701,10 +701,76 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [13/14] Load modules and test
+# [13/15] Camera relay tool (for non-PipeWire apps)
 # ──────────────────────────────────────────────
 echo ""
-echo "[13/14] Loading modules and testing..."
+echo "[13/15] Installing camera relay tool..."
+
+# Some apps (Zoom, OBS, VLC) don't support PipeWire/libcamera directly and
+# need a standard V4L2 device. The camera-relay tool creates an on-demand
+# v4l2loopback bridge: libcamerasrc → GStreamer → /dev/videoX.
+# Not enabled by default — users start it when needed.
+
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+RELAY_DIR="$SCRIPT_DIR/camera-relay"
+
+if [[ -d "$RELAY_DIR" ]]; then
+    # Install GStreamer libcamerasrc element if not present
+    if ! gst-inspect-1.0 libcamerasrc &>/dev/null 2>&1; then
+        echo "  Installing GStreamer libcamera plugin..."
+        if [[ "$DISTRO" == "fedora" ]]; then
+            sudo dnf install -y gstreamer1-plugins-bad-free-extras 2>/dev/null || \
+            sudo dnf install -y gstreamer1-plugins-bad-free 2>/dev/null || true
+        elif [[ "$DISTRO" == "arch" ]]; then
+            sudo pacman -S --needed --noconfirm gst-plugins-bad 2>/dev/null || true
+        elif [[ "$DISTRO" == "ubuntu" ]]; then
+            sudo apt install -y gstreamer1.0-plugins-bad 2>/dev/null || true
+        fi
+    fi
+
+    # Install v4l2loopback if not present
+    if ! modinfo v4l2loopback &>/dev/null 2>&1; then
+        echo "  Installing v4l2loopback..."
+        if [[ "$DISTRO" == "fedora" ]]; then
+            sudo dnf install -y v4l2loopback 2>/dev/null || true
+        elif [[ "$DISTRO" == "arch" ]]; then
+            sudo pacman -S --needed --noconfirm v4l2loopback-dkms 2>/dev/null || true
+        elif [[ "$DISTRO" == "ubuntu" ]]; then
+            sudo apt install -y v4l2loopback-dkms 2>/dev/null || true
+        fi
+    fi
+
+    # Deploy v4l2loopback config (only if no existing config)
+    if ! grep -rqs "v4l2loopback" /etc/modprobe.d/ 2>/dev/null; then
+        sudo cp "$RELAY_DIR/99-camera-relay-loopback.conf" /etc/modprobe.d/
+        echo "  ✓ Installed v4l2loopback config (/etc/modprobe.d/99-camera-relay-loopback.conf)"
+    else
+        echo "  ✓ Existing v4l2loopback config found — not overwriting"
+    fi
+
+    # Install CLI tool
+    sudo cp "$RELAY_DIR/camera-relay" /usr/local/bin/camera-relay
+    sudo chmod 755 /usr/local/bin/camera-relay
+    echo "  ✓ Installed /usr/local/bin/camera-relay"
+
+    # Install systray GUI
+    sudo mkdir -p /usr/local/share/camera-relay
+    sudo cp "$RELAY_DIR/camera-relay-systray.py" /usr/local/share/camera-relay/
+    sudo chmod 755 /usr/local/share/camera-relay/camera-relay-systray.py
+    echo "  ✓ Installed systray GUI (/usr/local/share/camera-relay/)"
+
+    # Install desktop file
+    sudo cp "$RELAY_DIR/camera-relay-systray.desktop" /usr/share/applications/
+    echo "  ✓ Installed desktop entry"
+else
+    echo "  ⚠ camera-relay directory not found — skipping relay tool installation"
+fi
+
+# ──────────────────────────────────────────────
+# [14/15] Load modules and test
+# ──────────────────────────────────────────────
+echo ""
+echo "[14/15] Loading modules and testing..."
 
 # Try to load LJCA and intel_cvs now
 for mod in usb_ljca gpio_ljca; do
@@ -743,7 +809,7 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [14/14] Summary
+# [15/15] Summary
 # ──────────────────────────────────────────────
 echo ""
 echo "=============================================="
@@ -764,13 +830,20 @@ echo "              For full resolution: media.navigator.video.default_width = 1
 echo "                                   media.navigator.video.default_height = 1080"
 echo "    Chrome:   chrome://flags → #enable-webrtc-pipewire-camera → Enabled"
 echo ""
+echo "  For apps without PipeWire support (Zoom, OBS, VLC):"
+echo "    camera-relay start              # Start the relay"
+echo "    camera-relay stop               # Stop the relay"
+echo "    camera-relay enable-persistent   # Auto-start on login (uses ~2-3% battery)"
+echo "    Or launch 'Camera Relay' from your app menu for a systray toggle"
+echo ""
 echo "  Known issues:"
 echo "    - Color quality: A light color correction profile is installed, but image"
 echo "      quality may not match Windows. Full sensor calibration is pending upstream."
 echo "    - Vertically flipped image: Fixed on Samsung 940XHA/960XHA via ipu-bridge"
 echo "      DKMS patch. Other models may still be affected."
-echo "    - Only one app can use the camera at a time. If Firefox is using it,"
-echo "      qcam won't work (and vice versa). Close the first app or reboot."
+echo "    - Only one app can use the camera at a time (libcamera limitation)."
+echo "      Close the first app before opening another. Use 'camera-relay' if you"
+echo "      need the camera in apps that don't support PipeWire."
 echo "    - If PipeWire doesn't see the camera, try: systemctl --user restart pipewire"
 echo ""
 echo "  Configuration files created:"
