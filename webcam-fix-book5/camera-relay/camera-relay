@@ -117,14 +117,26 @@ is_persistent() {
 }
 
 detect_ipa_path() {
-    # Fedora/Arch: /usr/lib64/libcamera or /usr/lib/libcamera
-    # Ubuntu (source build): /usr/local/lib/libcamera
-    for path in /usr/lib64/libcamera /usr/lib/libcamera /usr/local/lib/libcamera; do
-        if [[ -d "$path" ]]; then
+    # libcamera IPA modules are in <libdir>/libcamera or <libdir>/libcamera/ipa.
+    # Check for actual IPA .so files to find the correct path.
+    local path
+    for path in /usr/lib64/libcamera /usr/lib/libcamera /usr/local/lib/libcamera \
+                /lib64/libcamera /lib/libcamera; do
+        # Check both the directory itself and ipa/ subdirectory
+        if find "$path" -name "*.so" -path "*/ipa/*" 2>/dev/null | grep -q .; then
+            echo "$path"
+            return 0
+        fi
+        if find "$path" -maxdepth 1 -name "*.so" 2>/dev/null | grep -q .; then
             echo "$path"
             return 0
         fi
     done
+    # Last resort: check environment
+    if [[ -n "${LIBCAMERA_IPA_MODULE_PATH:-}" ]]; then
+        echo "$LIBCAMERA_IPA_MODULE_PATH"
+        return 0
+    fi
     return 1
 }
 
@@ -164,13 +176,19 @@ cmd_start() {
         export LIBCAMERA_IPA_MODULE_PATH="$ipa_path"
     fi
 
+    # gst-launch-1.0 interprets backslashes in property values as escape
+    # characters. Camera names like "\_SB_.LNK0" lose the backslash unless
+    # we double-escape it. The camera-name property needs the literal "\"
+    # to match what libcamera's CameraManager returns.
+    local gst_camera_name="${camera_name//\\/\\\\}"
+
     # Let libcamerasrc negotiate its native format/resolution, then convert.
     # libcamera on IPU7 typically outputs NV12 or bayer at 1920x1088 (sensor-
     # aligned). Hardcoding resolution or format causes negotiation failures on
     # some configurations. videoconvert handles any input → YUY2 for v4l2sink.
     local gst_cmd=(
         gst-launch-1.0 -e
-        libcamerasrc camera-name="$camera_name"
+        libcamerasrc camera-name="$gst_camera_name"
         ! videoconvert
         ! "video/x-raw,format=YUY2"
         ! v4l2sink device="$loopback_dev"
