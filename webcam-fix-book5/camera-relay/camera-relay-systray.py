@@ -12,6 +12,17 @@ if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
     print("camera-relay-systray: No display detected, exiting.", file=sys.stderr)
     sys.exit(0)
 
+# Single instance enforcement via lock file
+import fcntl
+
+LOCK_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "camera-relay-systray.lock")
+_lock_fd = open(LOCK_FILE, "w")
+try:
+    fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError:
+    print("camera-relay-systray: Another instance is already running.", file=sys.stderr)
+    sys.exit(0)
+
 import gi
 
 gi.require_version("Gtk", "3.0")

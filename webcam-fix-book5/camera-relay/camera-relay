@@ -392,11 +392,10 @@ WantedBy=default.target
 EOF
 
     systemctl --user daemon-reload
-    systemctl --user enable "$SERVICE_NAME"
+    systemctl --user enable --now "$SERVICE_NAME"
 
     info "Persistent mode enabled"
-    info "The relay will auto-start on your next login"
-    info "To start it now: camera-relay start"
+    info "The relay is now running and will auto-start on login"
     info "To disable later: camera-relay disable-persistent"
 }
 
