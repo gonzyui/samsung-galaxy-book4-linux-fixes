@@ -379,34 +379,13 @@ int main(int argc, char *argv[])
 
 			int client_detected = 0;
 
-			if (use_events) {
-				struct pollfd pfd = {
-					.fd = fd, .events = POLLPRI
-				};
-				int ret = poll(&pfd, 1, 1000);
-				if (ret < 0 && errno != EINTR)
-					break;
-
-				if (ret > 0 && (pfd.revents & POLLPRI)) {
-					struct v4l2_event ev;
-					memset(&ev, 0, sizeof(ev));
-					if (xioctl(fd, VIDIOC_DQEVENT,
-						   &ev) == 0 &&
-					    ev.type == event_type) {
-						__u32 count;
-						memcpy(&count, &ev.u,
-						       sizeof(count));
-						if (event_type ==
-						    V4L2_EVENT_CLIENT_USAGE_OLD)
-							client_detected =
-								(count > 0);
-						else
-							client_detected =
-								(count == 0);
-					}
-				}
-			} else {
-				/* /proc polling fallback */
+			/*
+			 * Poll /proc for capture clients. Events are
+			 * unreliable on v4l2loopback 0.12.7 (can block
+			 * in DQEVENT after first pipeline cycle), so
+			 * we use /proc polling exclusively.
+			 */
+			{
 				int clients = count_other_openers(
 					dev_stat.st_rdev, our_pid, 0);
 				if (clients > 0 && prev_clients == 0)
@@ -447,22 +426,26 @@ int main(int argc, char *argv[])
 			int ret = poll(&pfd, 1, 200);
 
 			if (ret > 0 && (pfd.revents & POLLIN)) {
-				if (read_full(pipe_fd, frame_buf,
-					      frame_size) == frame_size) {
+				int n = read_full(pipe_fd, frame_buf,
+						  frame_size);
+				if (n == frame_size) {
 					(void)!write(fd, frame_buf,
 						     frame_size);
 				} else {
 					/* Pipeline died (EOF/error) */
 					fprintf(stderr,
 						"[monitor] Pipeline"
-						" EOF/error\n");
+						" EOF/error (read=%d"
+						" of %d)\n",
+						n, frame_size);
 					need_stop = 1;
 				}
 			} else if (ret > 0 &&
 				   (pfd.revents & (POLLHUP | POLLERR))) {
 				fprintf(stderr,
 					"[monitor] Pipeline pipe"
-					" closed\n");
+					" closed (revents=0x%x)\n",
+					pfd.revents);
 				need_stop = 1;
 			} else if (ret == 0) {
 				/*
@@ -499,11 +482,11 @@ int main(int argc, char *argv[])
 				 * Stop when:
 				 * - Had clients and they're all gone
 				 *   for 3+ seconds
-				 * - Never saw any clients after 30
-				 *   seconds (stale startup)
+				 * - Never saw any clients after 10
+				 *   seconds (false start from scan)
 				 */
 				if ((had_clients && idle_ticks >= 3) ||
-				    (!had_clients && idle_ticks >= 30))
+				    (!had_clients && idle_ticks >= 10))
 					need_stop = 1;
 			}
 
@@ -526,27 +509,27 @@ int main(int argc, char *argv[])
 				printf("STOP\n");
 
 				/*
-				 * Drain stale events that may have
-				 * queued during relay mode.
-				 */
-				if (use_events) {
-					struct v4l2_event ev;
-					memset(&ev, 0, sizeof(ev));
-					while (xioctl(fd, VIDIOC_DQEVENT,
-						      &ev) == 0)
-						memset(&ev, 0, sizeof(ev));
-				}
-
-				/*
-				 * Check immediately if clients are
-				 * still connected (e.g., pipeline
-				 * crashed but clients remain). If so,
-				 * restart on next loop iteration.
+				 * Check if clients remain. The /proc
+				 * poll in IDLE will catch them on the
+				 * next iteration anyway, but checking
+				 * here avoids a brief gap.
 				 */
 				int remaining = count_other_openers(
 					dev_stat.st_rdev, our_pid, 0);
-				if (remaining > 0)
-					prev_clients = 0;  /* trigger re-detect */
+				if (remaining > 0) {
+					fprintf(stderr,
+						"[monitor] %d client(s)"
+						" still connected"
+						" — restarting\n",
+						remaining);
+					pipe_fd = start_pipeline(
+						pipeline_cmd,
+						&child_pid);
+					if (pipe_fd >= 0) {
+						relay_active = 1;
+						printf("START\n");
+					}
+				}
 			}
 		}
 	}
