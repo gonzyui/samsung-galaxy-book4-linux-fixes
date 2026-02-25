@@ -139,6 +139,7 @@ for user_home in /home/*; do
     fi
 done
 sudo rm -f /usr/local/bin/camera-relay
+sudo rm -f /usr/local/bin/camera-relay-monitor
 sudo rm -rf /usr/local/share/camera-relay
 sudo rm -f /usr/share/applications/camera-relay-systray.desktop
 # Only remove our v4l2loopback config if it's ours
