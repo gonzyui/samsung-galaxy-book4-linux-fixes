@@ -381,11 +381,18 @@ int main(int argc, char *argv[])
 	 *
 	 * IDLE: write black frames at ~1fps, watch for client connections.
 	 *       Writer fd is always held — ready_for_capture never drops.
+	 *       Uses v4l2loopback events when available (zero CPU), with
+	 *       /proc verification to filter PipeWire false starts.
+	 *       Falls back to /proc polling if no event support.
 	 *
 	 * RELAY: pipeline subprocess is running, outputting frames to a
 	 *        pipe. Read frames from pipe, write to device. Black
 	 *        frames are written during pipeline startup (before first
 	 *        real frame arrives). Monitor /proc for client disconnect.
+	 *
+	 * After each pipeline stop, the device fd is closed and re-opened
+	 * to reset v4l2loopback's event queue (0.12.7 events break
+	 * permanently after the first pipeline cycle otherwise).
 	 */
 	int relay_active = 0;
 	int prev_clients = 0;
@@ -410,13 +417,41 @@ int main(int argc, char *argv[])
 
 			int client_detected = 0;
 
-			/*
-			 * Poll /proc for capture clients. Events are
-			 * unreliable on v4l2loopback 0.12.7 (can block
-			 * in DQEVENT after first pipeline cycle), so
-			 * we use /proc polling exclusively.
-			 */
-			{
+			if (use_events) {
+				/*
+				 * Wait for v4l2loopback event (zero CPU).
+				 * Use 5s timeout so we periodically write
+				 * a black frame to keep the device alive.
+				 */
+				struct pollfd pfd = {
+					.fd = fd, .events = POLLPRI
+				};
+				int ret = poll(&pfd, 1, 5000);
+
+				if (ret > 0 && (pfd.revents & POLLPRI)) {
+					struct v4l2_event ev;
+					memset(&ev, 0, sizeof(ev));
+					if (xioctl(fd, VIDIOC_DQEVENT,
+						   &ev) == 0) {
+						/*
+						 * Verify via /proc — PipeWire
+						 * briefly opens the device
+						 * during scanning, causing
+						 * false events.
+						 */
+						usleep(100000);
+						int clients =
+							count_other_openers(
+							dev_realpath,
+							our_pid, 0);
+						if (clients > 0)
+							client_detected = 1;
+					}
+				}
+			} else {
+				/*
+				 * No event support — poll /proc every 2s.
+				 */
 				int clients = count_other_openers(
 					dev_realpath, our_pid, 0);
 				if (clients > 0 && prev_clients == 0)
@@ -540,10 +575,51 @@ int main(int argc, char *argv[])
 				printf("STOP\n");
 
 				/*
-				 * Check if clients remain. The /proc
-				 * poll in IDLE will catch them on the
-				 * next iteration anyway, but checking
-				 * here avoids a brief gap.
+				 * Re-open device to reset v4l2loopback
+				 * event queue. Without this, events
+				 * break permanently on 0.12.7 after the
+				 * first pipeline cycle.
+				 */
+				if (use_events) {
+					close(fd);
+					fd = open_writer(device, width,
+						height, frame_size,
+						black_frame);
+					if (fd < 0) {
+						fprintf(stderr,
+							"[monitor] "
+							"Re-open "
+							"failed!\n");
+						running = 0;
+						break;
+					}
+					event_type =
+						try_subscribe_events(fd);
+					if (event_type == 0) {
+						fprintf(stderr,
+							"[monitor] "
+							"Event re-sub"
+							" failed,"
+							" using /proc"
+							" polling\n");
+						use_events = 0;
+					} else {
+						/* Drain initial event
+						 * from fresh sub */
+						struct v4l2_event ev;
+						memset(&ev, 0,
+						       sizeof(ev));
+						xioctl(fd,
+						       VIDIOC_DQEVENT,
+						       &ev);
+					}
+				}
+
+				/*
+				 * Check if clients remain. The IDLE
+				 * loop will catch them on the next
+				 * iteration, but checking here avoids
+				 * a brief gap.
 				 */
 				int remaining = count_other_openers(
 					dev_realpath, our_pid, 0);
