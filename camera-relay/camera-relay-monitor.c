@@ -34,6 +34,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -362,12 +363,16 @@ int main(int argc, char *argv[])
 	__u32 event_type = try_subscribe_events(fd);
 	int use_events = (event_type != 0);
 
-	if (!use_events)
+	if (use_events)
+		fprintf(stderr,
+			"[monitor] Using events + /proc fallback\n");
+	else
 		fprintf(stderr,
 			"[monitor] No event support, using /proc polling\n");
 
-	fprintf(stderr, "[monitor] Watching %s (%dx%d)\n",
-		device, width, height);
+	fprintf(stderr, "[monitor] Watching %s (%dx%d) dev=%u:%u\n",
+		device, width, height,
+		major(dev_stat.st_rdev), minor(dev_stat.st_rdev));
 	printf("READY\n");
 
 	/*
@@ -445,6 +450,11 @@ int main(int argc, char *argv[])
 							count_other_openers(
 							dev_stat.st_rdev,
 							our_pid, 0);
+						fprintf(stderr,
+							"[monitor] Event"
+							" fired, /proc"
+							" clients=%d\n",
+							clients);
 						if (clients > 0)
 							client_detected = 1;
 					}
@@ -459,8 +469,14 @@ int main(int argc, char *argv[])
 					int clients = count_other_openers(
 						dev_stat.st_rdev,
 						our_pid, 0);
-					if (clients > 0)
+					if (clients > 0) {
+						fprintf(stderr,
+							"[monitor] /proc"
+							" fallback:"
+							" clients=%d\n",
+							clients);
 						client_detected = 1;
+					}
 				}
 			} else {
 				/*
