@@ -54,7 +54,7 @@ static int xioctl(int fd, unsigned long request, void *arg)
 	int r;
 	do {
 		r = ioctl(fd, request, arg);
-	} while (r == -1 && errno == EINTR);
+	} while (r == -1 && errno == EINTR && running);
 	return r;
 }
 
@@ -394,11 +394,16 @@ int main(int argc, char *argv[])
 	int pipe_fd = -1;
 
 	if (use_events) {
-		/* Drain initial event */
-		struct v4l2_event ev;
-		memset(&ev, 0, sizeof(ev));
-		xioctl(fd, VIDIOC_DQEVENT, &ev);
+		/* Drain initial event (non-blocking — may not exist) */
+		struct pollfd pfd = { .fd = fd, .events = POLLPRI };
+		if (poll(&pfd, 1, 200) > 0) {
+			struct v4l2_event ev;
+			memset(&ev, 0, sizeof(ev));
+			xioctl(fd, VIDIOC_DQEVENT, &ev);
+		}
 	}
+
+	int idle_polls = 0;  /* count poll timeouts for /proc fallback */
 
 	while (running) {
 		if (!relay_active) {
@@ -414,13 +419,15 @@ int main(int argc, char *argv[])
 			if (use_events) {
 				/*
 				 * Wait for v4l2loopback event (zero CPU).
-				 * Use 5s timeout so we periodically write
-				 * a black frame to keep the device alive.
+				 * Use 2s timeout. On timeout, fall back to
+				 * /proc check — events may be broken after
+				 * a pipeline cycle on some v4l2loopback
+				 * versions.
 				 */
 				struct pollfd pfd = {
 					.fd = fd, .events = POLLPRI
 				};
-				int ret = poll(&pfd, 1, 5000);
+				int ret = poll(&pfd, 1, 2000);
 
 				if (ret > 0 && (pfd.revents & POLLPRI)) {
 					struct v4l2_event ev;
@@ -441,6 +448,19 @@ int main(int argc, char *argv[])
 						if (clients > 0)
 							client_detected = 1;
 					}
+					idle_polls = 0;
+				} else {
+					/*
+					 * Event timeout — check /proc as
+					 * fallback. Events may be broken
+					 * after fd re-open on some versions.
+					 */
+					idle_polls++;
+					int clients = count_other_openers(
+						dev_stat.st_rdev,
+						our_pid, 0);
+					if (clients > 0)
+						client_detected = 1;
 				}
 			} else {
 				/*
@@ -599,13 +619,22 @@ int main(int argc, char *argv[])
 						use_events = 0;
 					} else {
 						/* Drain initial event
-						 * from fresh sub */
-						struct v4l2_event ev;
-						memset(&ev, 0,
-						       sizeof(ev));
-						xioctl(fd,
-						       VIDIOC_DQEVENT,
-						       &ev);
+						 * (non-blocking — may
+						 * not exist on all
+						 * v4l2loopback versions) */
+						struct pollfd pfd = {
+							.fd = fd,
+							.events = POLLPRI
+						};
+						if (poll(&pfd, 1, 200)
+						    > 0) {
+							struct v4l2_event ev;
+							memset(&ev, 0,
+							       sizeof(ev));
+							xioctl(fd,
+							       VIDIOC_DQEVENT,
+							       &ev);
+						}
 					}
 				}
 
