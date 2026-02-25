@@ -314,14 +314,13 @@ stop_pipeline() {
     fi
 }
 
-nudge_wireplumber() {
-    local loopback_dev="$1"
-    if command -v udevadm &>/dev/null && command -v systemctl &>/dev/null; then
-        sudo udevadm trigger --action=change "$loopback_dev" 2>/dev/null || true
-        sleep 1
-        systemctl --user restart wireplumber 2>/dev/null || true
-    fi
-}
+# No longer needed: with exclusive_caps=0, v4l2loopback always has
+# VIDEO_CAPTURE, so WirePlumber discovers it correctly on its own.
+# The old nudge_wireplumber (udevadm trigger + WirePlumber restart) was
+# needed for exclusive_caps=1 where caps only flipped after the relay
+# opened the device for writing. Removed because:
+# 1. sudo prompt blocks/confuses users
+# 2. WirePlumber restart disrupts active camera streams (causes flip)
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
@@ -395,8 +394,6 @@ cmd_start() {
         local card_name
         card_name=$(cat "/sys/class/video4linux/$(basename "$loopback_dev")/name" 2>/dev/null || echo "$loopback_dev")
         info "Camera available as '$card_name' in apps"
-
-        nudge_wireplumber "$loopback_dev"
     fi
 }
 
@@ -449,7 +446,6 @@ Run the installer to build it, or use 'camera-relay start' for always-on mode."
         case "$event" in
             READY)
                 info "Monitor ready, device visible to apps"
-                (nudge_wireplumber "$loopback_dev") &
                 ;;
             START)
                 if [[ -z "$pipeline_pid" ]] || ! kill -0 "$pipeline_pid" 2>/dev/null; then
