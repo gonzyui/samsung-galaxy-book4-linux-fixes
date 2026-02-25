@@ -712,7 +712,7 @@ echo "[13/16] Installing camera relay tool..."
 # Not enabled by default — users start it when needed.
 
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-RELAY_DIR="$SCRIPT_DIR/camera-relay"
+RELAY_DIR="$SCRIPT_DIR/../camera-relay"
 
 if [[ -d "$RELAY_DIR" ]]; then
     # Install GStreamer libcamerasrc element if not present
