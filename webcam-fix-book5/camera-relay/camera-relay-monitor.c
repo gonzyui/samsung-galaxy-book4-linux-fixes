@@ -1,21 +1,28 @@
 /*
- * camera-relay-monitor — Lightweight v4l2loopback client event monitor
+ * camera-relay-monitor — v4l2loopback frame relay & client monitor
  *
- * Opens the v4l2loopback device for writing and writes black frames to
- * keep ready_for_capture=1 (required for capture clients to STREAMON).
- * Monitors for client connections and prints "START" when a capture
- * client connects, "STOP" when the last client disconnects.
+ * Holds the v4l2loopback device open for writing at all times, writing
+ * black frames to keep ready_for_capture=1. When a capture client
+ * connects, forks a GStreamer pipeline subprocess that outputs raw
+ * YUY2 frames to a pipe. The monitor reads from the pipe and writes
+ * to the device, seamlessly replacing black frames with real camera
+ * data.
  *
- * When emitting START, the monitor CLOSES its writer fd so the GStreamer
- * pipeline can open the device for output (v4l2loopback allows only one
- * writer). During pipeline activity, client detection switches from
- * v4l2 events to /proc polling. After STOP, the monitor reopens the
- * device and resumes black frame writing.
+ * Because the monitor NEVER releases the writer fd, there is no gap
+ * in device availability during pipeline startup. Clients can STREAMON
+ * at any time and will see black frames until the camera initializes
+ * (typically 2-3 seconds), then real frames appear automatically.
+ *
+ * Events emitted on stdout (line-buffered):
+ *   READY  — device open, watching for clients
+ *   START  — client detected, pipeline starting
+ *   STOP   — clients gone, pipeline stopped
  *
  * Build:  gcc -O2 -Wall -o camera-relay-monitor camera-relay-monitor.c
- * Usage:  camera-relay-monitor /dev/video0 [width height]
+ * Usage:  camera-relay-monitor /dev/video0 1920 1080 -- gst-launch-1.0 ...
  */
 
+#define _GNU_SOURCE
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -27,6 +34,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 /* Event IDs for v4l2loopback versions */
@@ -50,8 +58,10 @@ static int xioctl(int fd, unsigned long request, void *arg)
 	return r;
 }
 
-/* Count processes (other than ours) that have this device open */
-static int count_other_openers(dev_t dev_id, pid_t our_pid)
+/* Count processes (other than ours and our children) that have this
+ * device open. Skips our PID and the pipeline child PID. */
+static int count_other_openers(dev_t dev_id, pid_t our_pid,
+			       pid_t child_pid)
 {
 	DIR *proc_dir;
 	struct dirent *proc_entry;
@@ -67,6 +77,8 @@ static int count_other_openers(dev_t dev_id, pid_t our_pid)
 		if (*endp != '\0' || pid <= 0)
 			continue;
 		if ((pid_t)pid == our_pid)
+			continue;
+		if (child_pid > 0 && (pid_t)pid == child_pid)
 			continue;
 
 		char fd_dir_path[128];
@@ -160,30 +172,126 @@ static __u32 try_subscribe_events(int fd)
 	return 0;
 }
 
+/* Read exactly n bytes from fd. Returns n on success, <n on EOF/error. */
+static int read_full(int fd, char *buf, int n)
+{
+	int total = 0;
+	while (total < n) {
+		int r = read(fd, buf + total, n - total);
+		if (r <= 0) {
+			if (r == -1 && errno == EINTR)
+				continue;
+			return total;  /* EOF or error */
+		}
+		total += r;
+	}
+	return total;
+}
+
+/* Start pipeline subprocess. Stdout goes to a pipe.
+ * Returns pipe read fd on success, -1 on failure. Sets *child_pid. */
+static int start_pipeline(char **cmd, pid_t *child_pid)
+{
+	int pipefd[2];
+	if (pipe(pipefd) < 0) {
+		fprintf(stderr, "[monitor] pipe() failed: %s\n",
+			strerror(errno));
+		return -1;
+	}
+
+	/* Try to increase pipe buffer for better throughput */
+	fcntl(pipefd[0], F_SETPIPE_SZ, 1048576);
+
+	pid_t pid = fork();
+	if (pid < 0) {
+		fprintf(stderr, "[monitor] fork() failed: %s\n",
+			strerror(errno));
+		close(pipefd[0]);
+		close(pipefd[1]);
+		return -1;
+	}
+
+	if (pid == 0) {
+		/* Child: pipe write end → fd 3 for fdsink.
+		 * Redirect stdout to /dev/null so gst-launch's
+		 * status messages don't corrupt the frame stream. */
+		close(pipefd[0]);
+		dup2(pipefd[1], 3);
+		close(pipefd[1]);
+		int devnull = open("/dev/null", O_WRONLY);
+		if (devnull >= 0) {
+			dup2(devnull, STDOUT_FILENO);
+			close(devnull);
+		}
+		execvp(cmd[0], cmd);
+		fprintf(stderr, "[monitor] exec failed: %s\n",
+			strerror(errno));
+		_exit(127);
+	}
+
+	/* Parent: close write end, return read end */
+	close(pipefd[1]);
+	*child_pid = pid;
+	return pipefd[0];
+}
+
+/* Stop pipeline subprocess and reap it. */
+static void stop_pipeline(pid_t pid, int pipe_fd)
+{
+	if (pipe_fd >= 0)
+		close(pipe_fd);
+
+	kill(pid, SIGTERM);
+
+	/* Wait up to 3 seconds for graceful exit */
+	for (int i = 0; i < 30; i++) {
+		int status;
+		if (waitpid(pid, &status, WNOHANG) != 0)
+			return;
+		usleep(100000);
+	}
+
+	/* Force kill */
+	kill(pid, SIGKILL);
+	waitpid(pid, NULL, 0);
+}
+
 int main(int argc, char *argv[])
 {
 	const char *device;
 	int width = 1920, height = 1080;
 	int frame_size;
 
-	if (argc < 2 || argc > 4) {
-		fprintf(stderr, "Usage: %s <device> [width height]\n",
-			argv[0]);
+	if (argc < 4) {
+		fprintf(stderr,
+			"Usage: %s <device> <width> <height>"
+			" -- <pipeline command...>\n", argv[0]);
 		return 1;
 	}
 
 	device = argv[1];
-	if (argc >= 3)
-		width = atoi(argv[2]);
-	if (argc >= 4)
-		height = atoi(argv[3]);
-
+	width = atoi(argv[2]);
+	height = atoi(argv[3]);
 	frame_size = width * height * 2;  /* YUY2: 2 bytes/pixel */
+
+	/* Find pipeline command after "--" */
+	char **pipeline_cmd = NULL;
+	for (int i = 4; i < argc; i++) {
+		if (strcmp(argv[i], "--") == 0 && i + 1 < argc) {
+			pipeline_cmd = &argv[i + 1];
+			break;
+		}
+	}
+	if (!pipeline_cmd) {
+		fprintf(stderr, "ERROR: No pipeline command given after --\n");
+		return 1;
+	}
 
 	setvbuf(stdout, NULL, _IOLBF, 0);
 
 	signal(SIGINT, handle_signal);
 	signal(SIGTERM, handle_signal);
+	signal(SIGPIPE, SIG_IGN);
 
 	/* Allocate YUY2 black frame (BT.601: Y=0x10, U=V=0x80) */
 	char *black_frame = malloc(frame_size);
@@ -198,12 +306,21 @@ int main(int argc, char *argv[])
 		black_frame[i + 3] = 0x80;
 	}
 
+	/* Allocate relay frame buffer */
+	char *frame_buf = malloc(frame_size);
+	if (!frame_buf) {
+		fprintf(stderr, "ERROR: Cannot allocate relay buffer\n");
+		free(black_frame);
+		return 1;
+	}
+
 	/* Get device stat for /proc polling */
 	struct stat dev_stat;
 	if (stat(device, &dev_stat) < 0) {
 		fprintf(stderr, "ERROR: Cannot stat %s: %s\n",
 			device, strerror(errno));
 		free(black_frame);
+		free(frame_buf);
 		return 1;
 	}
 	pid_t our_pid = getpid();
@@ -212,6 +329,7 @@ int main(int argc, char *argv[])
 	int fd = open_writer(device, width, height, frame_size, black_frame);
 	if (fd < 0) {
 		free(black_frame);
+		free(frame_buf);
 		return 1;
 	}
 
@@ -220,24 +338,28 @@ int main(int argc, char *argv[])
 	int use_events = (event_type != 0);
 
 	if (!use_events)
-		fprintf(stderr, "[monitor] No event support, using /proc polling\n");
+		fprintf(stderr,
+			"[monitor] No event support, using /proc polling\n");
 
 	fprintf(stderr, "[monitor] Watching %s (%dx%d)\n",
 		device, width, height);
 	printf("READY\n");
 
 	/*
-	 * Main loop: alternate between IDLE and PIPELINE_ACTIVE states.
+	 * Main loop: IDLE and RELAY states.
 	 *
-	 * IDLE: monitor holds writer fd, writes black frames, watches
-	 *       for client connections via events or /proc polling.
+	 * IDLE: write black frames at ~1fps, watch for client connections.
+	 *       Writer fd is always held — ready_for_capture never drops.
 	 *
-	 * PIPELINE_ACTIVE: monitor has CLOSED writer fd (so the GStreamer
-	 *       pipeline can open it). Uses /proc polling to detect when
-	 *       all clients have disconnected.
+	 * RELAY: pipeline subprocess is running, outputting frames to a
+	 *        pipe. Read frames from pipe, write to device. Black
+	 *        frames are written during pipeline startup (before first
+	 *        real frame arrives). Monitor /proc for client disconnect.
 	 */
-	int pipeline_active = 0;
+	int relay_active = 0;
 	int prev_clients = 0;
+	pid_t child_pid = 0;
+	int pipe_fd = -1;
 
 	if (use_events) {
 		/* Drain initial event */
@@ -247,11 +369,11 @@ int main(int argc, char *argv[])
 	}
 
 	while (running) {
-		if (!pipeline_active) {
+		if (!relay_active) {
 			/*
-			 * IDLE state: writer fd is open.
-			 * Write black frames to maintain ready_for_capture.
-			 * Watch for client connections.
+			 * IDLE state: write black frame, watch for clients.
+			 * The write keeps ready_for_capture=1 so clients
+			 * can STREAMON at any time.
 			 */
 			(void)!write(fd, black_frame, frame_size);
 
@@ -286,7 +408,7 @@ int main(int argc, char *argv[])
 			} else {
 				/* /proc polling fallback */
 				int clients = count_other_openers(
-					dev_stat.st_rdev, our_pid);
+					dev_stat.st_rdev, our_pid, 0);
 				if (clients > 0 && prev_clients == 0)
 					client_detected = 1;
 				prev_clients = clients;
@@ -296,111 +418,144 @@ int main(int argc, char *argv[])
 
 			if (client_detected) {
 				fprintf(stderr,
-					"[monitor] Client connected — "
-					"yielding writer fd\n");
-				close(fd);
-				fd = -1;
-				pipeline_active = 1;
+					"[monitor] Client connected"
+					" — starting pipeline\n");
+				pipe_fd = start_pipeline(pipeline_cmd,
+							 &child_pid);
+				if (pipe_fd < 0) {
+					fprintf(stderr,
+						"[monitor] Failed to"
+						" start pipeline\n");
+					continue;
+				}
+				relay_active = 1;
 				prev_clients = 0;
 				printf("START\n");
-				/*
-				 * Give the pipeline time to open the
-				 * device before we start polling.
-				 */
-				sleep(3);
 			}
 		} else {
 			/*
-			 * PIPELINE_ACTIVE state: writer fd is closed.
-			 * The GStreamer pipeline has the device open for
-			 * writing. Use /proc polling to detect when all
-			 * capture clients have disconnected.
-			 *
-			 * Openers: pipeline (1 writer) + clients (readers).
-			 * When count drops to <=1 (just pipeline or empty),
-			 * clients are gone. Track how long we've been at
-			 * <=1 openers to avoid false positives during
-			 * pipeline startup or brief client transitions.
+			 * RELAY state: read frames from pipeline pipe,
+			 * write to device. During pipeline startup
+			 * (before first frame), write black frames to
+			 * keep the device active for clients.
 			 */
-			static int idle_ticks = 0;
-			static int peak_openers = 0;
+			int need_stop = 0;
 
-			int openers = count_other_openers(
-				dev_stat.st_rdev, our_pid);
+			struct pollfd pfd = {
+				.fd = pipe_fd, .events = POLLIN
+			};
+			int ret = poll(&pfd, 1, 200);
 
-			if (openers > peak_openers)
-				peak_openers = openers;
-
-			if (openers <= 1) {
-				idle_ticks++;
-			} else {
-				idle_ticks = 0;
+			if (ret > 0 && (pfd.revents & POLLIN)) {
+				if (read_full(pipe_fd, frame_buf,
+					      frame_size) == frame_size) {
+					(void)!write(fd, frame_buf,
+						     frame_size);
+				} else {
+					/* Pipeline died (EOF/error) */
+					fprintf(stderr,
+						"[monitor] Pipeline"
+						" EOF/error\n");
+					need_stop = 1;
+				}
+			} else if (ret > 0 &&
+				   (pfd.revents & (POLLHUP | POLLERR))) {
+				fprintf(stderr,
+					"[monitor] Pipeline pipe"
+					" closed\n");
+				need_stop = 1;
+			} else if (ret == 0) {
+				/*
+				 * No frame data within 200ms.
+				 * Write a black frame to keep the
+				 * device active during pipeline init.
+				 */
+				(void)!write(fd, black_frame, frame_size);
 			}
 
 			/*
-			 * Emit STOP when:
-			 * - We've seen clients (peak > 1) and now they're
-			 *   gone (<=1 for 3+ ticks = ~3 seconds), OR
-			 * - No clients ever appeared after 30 seconds
-			 *   (pipeline started but nobody reconnected)
+			 * Check client count via /proc every ~1 second.
+			 * poll at 200ms means ~5 iterations per second.
+			 * Check every 5th iteration.
 			 */
-			int clients_left = (peak_openers > 1 &&
-					    idle_ticks >= 3);
-			int nobody_came = (peak_openers <= 1 &&
-					   idle_ticks >= 30);
+			static int check_tick = 0;
+			static int idle_ticks = 0;
+			static int had_clients = 0;
 
-			if (clients_left || nobody_came) {
-				fprintf(stderr,
-					"[monitor] All clients disconnected"
-					" (openers=%d, peak=%d)\n",
-					openers, peak_openers);
-				printf("STOP\n");
-				pipeline_active = 0;
-				prev_clients = 0;
-				idle_ticks = 0;
-				peak_openers = 0;
+			if (!need_stop && ++check_tick % 5 == 0) {
+				int clients = count_other_openers(
+					dev_stat.st_rdev, our_pid,
+					child_pid);
+
+				if (clients > 0)
+					had_clients = 1;
+
+				if (clients <= 0)
+					idle_ticks++;
+				else
+					idle_ticks = 0;
 
 				/*
-				 * Wait for the bash script to stop the
-				 * pipeline, then reclaim the writer fd.
+				 * Stop when:
+				 * - Had clients and they're all gone
+				 *   for 3+ seconds
+				 * - Never saw any clients after 30
+				 *   seconds (stale startup)
 				 */
-				sleep(3);
-				fd = open_writer(device, width, height,
-						 frame_size, black_frame);
-				if (fd < 0) {
-					fprintf(stderr,
-						"[monitor] Failed to "
-						"reopen writer\n");
-					break;
-				}
-
-				/* Re-subscribe to events if available */
-				if (use_events) {
-					event_type =
-						try_subscribe_events(fd);
-					if (event_type == 0)
-						use_events = 0;
-					else {
-						struct v4l2_event ev;
-						memset(&ev, 0, sizeof(ev));
-						xioctl(fd, VIDIOC_DQEVENT,
-						       &ev);
-					}
-				}
-
-				fprintf(stderr,
-					"[monitor] Writer fd reclaimed,"
-					" resuming idle\n");
+				if ((had_clients && idle_ticks >= 3) ||
+				    (!had_clients && idle_ticks >= 30))
+					need_stop = 1;
 			}
-			prev_clients = openers;
 
-			/* Poll interval */
-			for (int i = 0; i < 10 && running; i++)
-				usleep(100000);
+			if (need_stop) {
+				int clients = count_other_openers(
+					dev_stat.st_rdev, our_pid,
+					child_pid);
+				fprintf(stderr,
+					"[monitor] Stopping pipeline"
+					" (clients=%d)\n", clients);
+
+				stop_pipeline(child_pid, pipe_fd);
+				relay_active = 0;
+				pipe_fd = -1;
+				child_pid = 0;
+				check_tick = 0;
+				idle_ticks = 0;
+				had_clients = 0;
+				prev_clients = 0;
+				printf("STOP\n");
+
+				/*
+				 * Drain stale events that may have
+				 * queued during relay mode.
+				 */
+				if (use_events) {
+					struct v4l2_event ev;
+					memset(&ev, 0, sizeof(ev));
+					while (xioctl(fd, VIDIOC_DQEVENT,
+						      &ev) == 0)
+						memset(&ev, 0, sizeof(ev));
+				}
+
+				/*
+				 * Check immediately if clients are
+				 * still connected (e.g., pipeline
+				 * crashed but clients remain). If so,
+				 * restart on next loop iteration.
+				 */
+				int remaining = count_other_openers(
+					dev_stat.st_rdev, our_pid, 0);
+				if (remaining > 0)
+					prev_clients = 0;  /* trigger re-detect */
+			}
 		}
 	}
 
+	/* Cleanup */
 	fprintf(stderr, "[monitor] Shutting down\n");
+	if (relay_active)
+		stop_pipeline(child_pid, pipe_fd);
+	free(frame_buf);
 	free(black_frame);
 	if (fd >= 0)
 		close(fd);

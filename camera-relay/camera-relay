@@ -430,47 +430,49 @@ Run the installer to build it, or use 'camera-relay start' for always-on mode."
     info "Starting on-demand relay daemon..."
     info "Camera pipeline will activate when an app opens the device"
 
-    local pipeline_pid=""
     local gst_log="${XDG_RUNTIME_DIR:-/tmp}/camera-relay.log"
 
-    # Clean up all children on exit (monitor runs in process substitution)
+    # Build the GStreamer pipeline command for fdsink output.
+    # The monitor forks this command when clients connect, reads raw
+    # YUY2 frames from its stdout, and relays them to the device.
+    # This avoids the writer fd handoff gap — the monitor always holds
+    # the device open, so ready_for_capture never drops.
+    local gst_camera_name="${camera_name//\\/\\\\}"
+    local -a gst_cmd=(
+        gst-launch-1.0 -e
+        libcamerasrc camera-name="$gst_camera_name"
+        ! queue max-size-buffers=3 leaky=downstream
+        ! videoconvert
+        ! "video/x-raw,format=YUY2,width=1920,height=1080"
+        ! fdsink fd=3 sync=false
+    )
+
+    # Clean up all children on exit
     cleanup_on_demand() {
-        [[ -n "$pipeline_pid" ]] && kill "$pipeline_pid" 2>/dev/null
-        pkill -P $$ 2>/dev/null  # kill monitor and any other children
+        pkill -P $$ 2>/dev/null
         rm -f "$PID_FILE" "$STATE_CACHE"
     }
     trap cleanup_on_demand EXIT
 
-    # Read events from the monitor. It emits: READY, START, STOP
+    # The monitor manages the pipeline subprocess itself.
+    # We just read its events for status tracking.
     while IFS= read -r event; do
         case "$event" in
             READY)
                 info "Monitor ready, device visible to apps"
                 ;;
             START)
-                if [[ -z "$pipeline_pid" ]] || ! kill -0 "$pipeline_pid" 2>/dev/null; then
-                    info "Client connected — starting camera pipeline..."
-                    echo "streaming" > "$STATE_CACHE"
-                    pipeline_pid=$(start_pipeline "$camera_name" "$loopback_dev" true) || {
-                        warn "Failed to start pipeline"
-                        pipeline_pid=""
-                        echo "idle" > "$STATE_CACHE"
-                        continue
-                    }
-                    info "Pipeline started (PID $pipeline_pid)"
-                fi
+                info "Client connected — starting camera pipeline..."
+                echo "streaming" > "$STATE_CACHE"
                 ;;
             STOP)
-                if [[ -n "$pipeline_pid" ]] && kill -0 "$pipeline_pid" 2>/dev/null; then
-                    info "All clients disconnected — stopping camera pipeline"
-                    stop_pipeline "$pipeline_pid"
-                    pipeline_pid=""
-                    echo "idle" > "$STATE_CACHE"
-                    info "Pipeline stopped, camera released"
-                fi
+                info "All clients disconnected — pipeline stopped"
+                echo "idle" > "$STATE_CACHE"
+                info "Camera released, resuming idle"
                 ;;
         esac
-    done < <("$MONITOR_BIN" "$loopback_dev" 1920 1080 2>"$gst_log")
+    done < <("$MONITOR_BIN" "$loopback_dev" 1920 1080 \
+             -- "${gst_cmd[@]}" 2>"$gst_log")
 
     info "On-demand relay stopped"
 }
