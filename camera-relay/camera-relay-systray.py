@@ -101,9 +101,17 @@ class CameraRelaySystray:
 
         menu.append(Gtk.SeparatorMenuItem())
 
-        item_quit = Gtk.MenuItem(label="Quit")
-        item_quit.connect("activate", self._on_quit)
-        menu.append(item_quit)
+        item_hide = Gtk.MenuItem(label="Hide Indicator")
+        item_hide.connect("activate", self._on_hide)
+        menu.append(item_hide)
+
+        item_stop_hide = Gtk.MenuItem(label="Stop Relay & Hide")
+        item_stop_hide.connect("activate", self._on_stop_and_hide)
+        menu.append(item_stop_hide)
+
+        item_disable_hide = Gtk.MenuItem(label="Disable Relay & Hide")
+        item_disable_hide.connect("activate", self._on_disable_and_hide)
+        menu.append(item_disable_hide)
 
         menu.show_all()
         return menu
@@ -248,8 +256,39 @@ class CameraRelaySystray:
             subprocess.Popen([RELAY_CMD, "enable-persistent", "--yes"])
             GLib.timeout_add(1000, self._poll_status)
 
-    def _on_quit(self, _widget):
+    def _on_hide(self, _widget):
+        """Just close the indicator — relay keeps running."""
         Gtk.main_quit()
+
+    def _on_stop_and_hide(self, _widget):
+        """Stop the relay now but keep persistent enabled (restarts on next login)."""
+        subprocess.run([RELAY_CMD, "stop"], capture_output=True, timeout=10)
+        Gtk.main_quit()
+
+    def _on_disable_and_hide(self, _widget):
+        """Disable persistent mode, stop relay, and close indicator."""
+        dialog = Gtk.MessageDialog(
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text="Disable Camera Relay?",
+        )
+        dialog.format_secondary_text(
+            "This will stop the camera relay and prevent it from starting "
+            "on login. The internal camera won't be visible to most apps "
+            "(Zoom, Chrome, OBS, etc.) without it.\n\n"
+            "The relay uses near-zero CPU when idle — there's usually no "
+            "reason to disable it.\n\n"
+            "You can re-enable it later by running:\n\n"
+            "  camera-relay enable-persistent"
+        )
+        dialog.set_title("Camera Relay")
+        response = dialog.run()
+        dialog.destroy()
+
+        if response == Gtk.ResponseType.OK:
+            subprocess.run([RELAY_CMD, "disable-persistent"], capture_output=True, timeout=10)
+            subprocess.run([RELAY_CMD, "stop"], capture_output=True, timeout=10)
+            Gtk.main_quit()
 
 
 if __name__ == "__main__":
