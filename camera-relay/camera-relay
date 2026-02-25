@@ -520,6 +520,7 @@ cmd_status() {
     fi
 
     camera=$(cat "$CAMERA_CACHE" 2>/dev/null) || camera=""
+    [[ -z "$camera" ]] && camera=$(detect_camera_name 2>/dev/null) || true
     [[ -z "$camera" ]] && camera="(not detected)"
     device=$(cat "$DEVICE_CACHE" 2>/dev/null) || device=""
     [[ -z "$device" ]] && device="(not loaded)"
