@@ -218,6 +218,12 @@ static int read_full(int fd, char *buf, int n)
  * Returns pipe read fd on success, -1 on failure. Sets *child_pid. */
 static int start_pipeline(char **cmd, pid_t *child_pid)
 {
+	/* Log the pipeline command for debugging */
+	fprintf(stderr, "[monitor] Pipeline:");
+	for (int i = 0; cmd[i]; i++)
+		fprintf(stderr, " %s", cmd[i]);
+	fprintf(stderr, "\n");
+
 	int pipefd[2];
 	if (pipe(pipefd) < 0) {
 		fprintf(stderr, "[monitor] pipe() failed: %s\n",
@@ -397,6 +403,7 @@ int main(int argc, char *argv[])
 	int prev_clients = 0;
 	pid_t child_pid = 0;
 	int pipe_fd = -1;
+	int rapid_fails = 0;  /* pipeline failures without success */
 
 	if (use_events) {
 		/* Drain initial event (non-blocking — may not exist) */
@@ -527,6 +534,7 @@ int main(int argc, char *argv[])
 				if (n == frame_size) {
 					(void)!write(fd, frame_buf,
 						     frame_size);
+					rapid_fails = 0;  /* got real data */
 				} else {
 					/* Pipeline died (EOF/error) */
 					fprintf(stderr,
@@ -659,10 +667,14 @@ int main(int argc, char *argv[])
 				 * loop will catch them on the next
 				 * iteration, but checking here avoids
 				 * a brief gap.
+				 *
+				 * Stop retrying if the pipeline keeps
+				 * failing rapidly (e.g. syntax error).
 				 */
+				rapid_fails++;
 				int remaining = count_other_openers(
 					dev_stat.st_rdev, our_pid, 0);
-				if (remaining > 0) {
+				if (remaining > 0 && rapid_fails < 3) {
 					fprintf(stderr,
 						"[monitor] %d client(s)"
 						" still connected"
@@ -675,6 +687,13 @@ int main(int argc, char *argv[])
 						relay_active = 1;
 						printf("START\n");
 					}
+				} else if (rapid_fails >= 3) {
+					fprintf(stderr,
+						"[monitor] Pipeline"
+						" failed %d times,"
+						" not retrying\n",
+						rapid_fails);
+					rapid_fails = 0;
 				}
 			}
 		}
