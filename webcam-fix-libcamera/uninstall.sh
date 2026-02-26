@@ -40,6 +40,11 @@ if lsmod 2>/dev/null | grep -q v4l2loopback; then
         sudo modprobe -r v4l2loopback 2>/dev/null || true
     fi
 fi
+# Fedora: rebuild initramfs so dracut doesn't load v4l2loopback with stale config
+if command -v dracut &>/dev/null; then
+    echo "  Rebuilding initramfs to remove v4l2loopback config..."
+    sudo dracut --regenerate-all -f 2>/dev/null || true
+fi
 echo "  ✓ Camera relay removed"
 
 # [2/8] Remove module configuration
