@@ -39,7 +39,7 @@ echo "=============================================="
 echo ""
 
 # ──────────────────────────────────────────────
-# [1/13] Root check
+# [1/14] Root check
 # ──────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
     echo "ERROR: Don't run this as root. The script will use sudo where needed."
@@ -47,9 +47,9 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # ──────────────────────────────────────────────
-# [2/13] Distro detection
+# [2/14] Distro detection
 # ──────────────────────────────────────────────
-echo "[2/13] Detecting distro..."
+echo "[2/14] Detecting distro..."
 if command -v pacman >/dev/null 2>&1; then
     DISTRO="arch"
     DISTRO_LABEL="Arch-based"
@@ -74,10 +74,10 @@ fi
 echo "  ✓ $DISTRO_LABEL detected"
 
 # ──────────────────────────────────────────────
-# [3/13] Verify hardware
+# [3/14] Verify hardware
 # ──────────────────────────────────────────────
 echo ""
-echo "[3/13] Verifying hardware..."
+echo "[3/14] Verifying hardware..."
 
 IPU_GENERATION=""
 if lspci -d 8086:7d19 2>/dev/null | grep -q .; then
@@ -131,10 +131,10 @@ fi
 echo "  ✓ IVSC firmware present"
 
 # ──────────────────────────────────────────────
-# [4/13] Check kernel version
+# [4/14] Check kernel version
 # ──────────────────────────────────────────────
 echo ""
-echo "[4/13] Checking kernel version..."
+echo "[4/14] Checking kernel version..."
 KERNEL_VER=$(uname -r)
 KERNEL_MAJOR=$(echo "$KERNEL_VER" | cut -d. -f1)
 KERNEL_MINOR=$(echo "$KERNEL_VER" | cut -d. -f2)
@@ -159,10 +159,10 @@ fi
 echo "  ✓ Kernel $KERNEL_VER (>= 6.10 required)"
 
 # ──────────────────────────────────────────────
-# [5/13] Check kernel modules
+# [5/14] Check kernel modules
 # ──────────────────────────────────────────────
 echo ""
-echo "[5/13] Checking kernel modules..."
+echo "[5/14] Checking kernel modules..."
 MISSING_MODS=()
 for mod in mei-vsc mei-vsc-hw ivsc-ace ivsc-csi intel-ipu6 intel-ipu6-isys ov02c10; do
     modpath=$(find /lib/modules/$(uname -r) -name "${mod//-/_}.ko*" -o -name "${mod}.ko*" 2>/dev/null | head -1)
@@ -193,10 +193,97 @@ fi
 echo "  ✓ All required kernel modules found"
 
 # ──────────────────────────────────────────────
-# [6/13] Load and persist IVSC modules
+# [6/14] Check OV02C10 sensor probe (26 MHz clock fix)
 # ──────────────────────────────────────────────
 echo ""
-echo "[6/13] Loading IVSC kernel modules..."
+echo "[6/14] Checking OV02C10 sensor probe status..."
+
+# Some Galaxy Book models (notably Book3/Book4 Ultra with Raptor Lake) have a
+# 26 MHz external clock instead of the expected 19.2 MHz. The upstream ov02c10
+# driver rejects this, causing the sensor to fail to probe. A DKMS-patched
+# driver adds 26 MHz support.
+
+DKMS_26MHZ_NEEDED=false
+DKMS_26MHZ_INSTALLED=false
+
+# Check if DKMS fix is already installed
+if command -v dkms >/dev/null 2>&1 && dkms status ov02c10/1.0 2>/dev/null | grep -q "installed"; then
+    DKMS_26MHZ_INSTALLED=true
+    echo "  ✓ OV02C10 26 MHz DKMS fix already installed"
+fi
+
+if ! $DKMS_26MHZ_INSTALLED; then
+    # Check dmesg for the 26 MHz clock rejection
+    if dmesg 2>/dev/null | grep -qi "external clock 26000000 is not supported"; then
+        DKMS_26MHZ_NEEDED=true
+        echo "  ⚠ Detected 26 MHz external clock error in dmesg."
+        echo "    Your hardware has a 26 MHz clock but the kernel driver only supports 19.2 MHz."
+        echo "    A DKMS-patched ov02c10 driver is available to fix this."
+        echo ""
+        read -rp "  Install the patched driver now? [Y/n] " REPLY_26MHZ
+        REPLY_26MHZ=${REPLY_26MHZ:-Y}
+        if [[ "$REPLY_26MHZ" =~ ^[Yy] ]]; then
+            DKMS_FIX_DIR="${SCRIPT_DIR}/../ov02c10-26mhz-fix"
+            DKMS_FIX_SCRIPT=""
+
+            if [[ -f "$DKMS_FIX_DIR/install.sh" ]]; then
+                DKMS_FIX_SCRIPT="$DKMS_FIX_DIR/install.sh"
+            else
+                # Files not present locally — download from GitHub
+                echo "  Downloading 26 MHz fix from GitHub..."
+                DKMS_TMP_DIR="/tmp/ov02c10-26mhz-fix"
+                rm -rf "$DKMS_TMP_DIR"
+                mkdir -p "$DKMS_TMP_DIR"
+                GITHUB_RAW="https://raw.githubusercontent.com/Andycodeman/samsung-galaxy-book4-linux-fixes/main/ov02c10-26mhz-fix"
+                for fname in install.sh ov02c10.c Makefile dkms.conf; do
+                    if ! curl -fsSL "$GITHUB_RAW/$fname" -o "$DKMS_TMP_DIR/$fname"; then
+                        echo "  ERROR: Failed to download $fname"
+                        echo "         Please clone the full repo and try again:"
+                        echo "         git clone https://github.com/Andycodeman/samsung-galaxy-book4-linux-fixes.git"
+                        rm -rf "$DKMS_TMP_DIR"
+                        break
+                    fi
+                done
+                if [[ -f "$DKMS_TMP_DIR/install.sh" ]]; then
+                    DKMS_FIX_SCRIPT="$DKMS_TMP_DIR/install.sh"
+                fi
+            fi
+
+            if [[ -n "$DKMS_FIX_SCRIPT" ]]; then
+                echo "  Running 26 MHz DKMS fix installer..."
+                sudo bash "$DKMS_FIX_SCRIPT"
+
+                # Verify the fix worked
+                sleep 2
+                if dmesg 2>/dev/null | grep -qi "external clock 26000000 is not supported" && \
+                   ! dkms status ov02c10/1.0 2>/dev/null | grep -q "installed"; then
+                    echo "  ⚠ DKMS fix may not have applied correctly."
+                    echo "    A reboot may be needed for the patched driver to load."
+                else
+                    echo "  ✓ 26 MHz DKMS fix installed successfully"
+                fi
+
+                # Clean up temp download
+                rm -rf /tmp/ov02c10-26mhz-fix
+            else
+                echo "  ⚠ Could not locate fix installer. Continuing without the fix."
+                echo "    The camera will likely NOT work until this is resolved."
+                echo "    See: https://github.com/Andycodeman/samsung-galaxy-book4-linux-fixes/tree/main/ov02c10-26mhz-fix"
+            fi
+        else
+            echo "  ⚠ Skipping 26 MHz fix. The camera will likely NOT work without it."
+            echo "    You can install it later from: ov02c10-26mhz-fix/install.sh"
+        fi
+    else
+        echo "  ✓ Sensor clock OK (no 26 MHz clock mismatch detected)"
+    fi
+fi
+
+# ──────────────────────────────────────────────
+# [7/14] Load and persist IVSC modules
+# ──────────────────────────────────────────────
+echo ""
+echo "[7/14] Loading IVSC kernel modules..."
 for mod in mei-vsc mei-vsc-hw ivsc-ace ivsc-csi; do
     if ! lsmod | grep -q "$(echo $mod | tr '-' '_')"; then
         sudo modprobe "$mod"
@@ -281,10 +368,10 @@ MKINIT_EOF
 esac
 
 # ──────────────────────────────────────────────
-# [7/13] Install/build libcamera
+# [8/14] Install/build libcamera
 # ──────────────────────────────────────────────
 echo ""
-echo "[7/13] Installing libcamera..."
+echo "[8/14] Installing libcamera..."
 
 # Check if a sufficient version is already installed
 check_libcamera_version() {
@@ -445,10 +532,10 @@ case "$DISTRO" in
 esac
 
 # ──────────────────────────────────────────────
-# [8/13] Install PipeWire libcamera plugin
+# [9/14] Install PipeWire libcamera plugin
 # ──────────────────────────────────────────────
 echo ""
-echo "[8/13] Installing PipeWire libcamera plugin..."
+echo "[9/14] Installing PipeWire libcamera plugin..."
 
 # On Ubuntu/Debian with source-built libcamera, the system PipeWire SPA plugin
 # links against the old system libcamera (0.2.x). We need to rebuild the SPA
@@ -549,10 +636,10 @@ case "$DISTRO" in
 esac
 
 # ──────────────────────────────────────────────
-# [9/13] Install sensor tuning and configure environment
+# [10/14] Install sensor tuning and configure environment
 # ──────────────────────────────────────────────
 echo ""
-echo "[9/13] Installing sensor tuning and environment config..."
+echo "[10/14] Installing sensor tuning and environment config..."
 
 # Install OV02C10 tuning file for libcamera Simple ISP
 for dir in /usr/local/share/libcamera/ipa/simple /usr/share/libcamera/ipa/simple; do
@@ -586,10 +673,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [10/13] Hide raw IPU6 nodes from PipeWire
+# [11/14] Hide raw IPU6 nodes from PipeWire
 # ──────────────────────────────────────────────
 echo ""
-echo "[10/13] Hiding raw IPU6 nodes from applications..."
+echo "[11/14] Hiding raw IPU6 nodes from applications..."
 
 # Remove session-level ACL from raw V4L2 nodes (keeps file permissions intact
 # so libcamera can still access them via the video group)
@@ -654,10 +741,10 @@ fi
 echo "  ✓ Raw IPU6 nodes hidden from applications"
 
 # ──────────────────────────────────────────────
-# [11/13] Camera relay tool (for non-PipeWire apps)
+# [12/14] Camera relay tool (for non-PipeWire apps)
 # ──────────────────────────────────────────────
 echo ""
-echo "[11/13] Installing camera relay tool..."
+echo "[12/14] Installing camera relay tool..."
 
 # Some apps (Zoom, OBS, VLC) don't support PipeWire/libcamera directly and
 # need a standard V4L2 device. The camera-relay tool creates an on-demand
@@ -773,10 +860,10 @@ else
 fi
 
 # ──────────────────────────────────────────────
-# [12/13] Enable PipeWire camera in Chromium browsers
+# [13/14] Enable PipeWire camera in Chromium browsers
 # ──────────────────────────────────────────────
 echo ""
-echo "[12/13] Configuring Chromium-based browsers for PipeWire camera..."
+echo "[13/14] Configuring Chromium-based browsers for PipeWire camera..."
 
 # Chromium/Brave/Chrome use direct V4L2 by default and may not show the
 # v4l2loopback device. Enabling the PipeWire camera flag makes them use
@@ -848,10 +935,10 @@ if ! $BROWSER_FLAGS_SET; then
 fi
 
 # ──────────────────────────────────────────────
-# [13/13] Restart PipeWire and verify
+# [14/14] Restart PipeWire and verify
 # ──────────────────────────────────────────────
 echo ""
-echo "[13/13] Restarting PipeWire and verifying camera..."
+echo "[14/14] Restarting PipeWire and verifying camera..."
 
 # Restart PipeWire so it picks up the libcamera SPA plugin
 systemctl --user restart pipewire wireplumber 2>/dev/null || true
