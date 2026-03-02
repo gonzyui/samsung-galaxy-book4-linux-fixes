@@ -13,10 +13,26 @@
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
+#include <linux/version.h>
 #include <media/v4l2-cci.h>
+#include <media/v4l2-common.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-fwnode.h>
+
+/*
+ * Compat: devm_v4l2_sensor_clk_get() was added in kernel 6.18.
+ * Fall back to devm_clk_get_optional() on older kernels.
+ * On ACPI/IPU6 platforms the IPU bridge registers a fixed clock,
+ * so devm_clk_get_optional() finds it correctly.
+ */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
+static inline struct clk *
+devm_v4l2_sensor_clk_get(struct device *dev, const char *id)
+{
+	return devm_clk_get_optional(dev, id);
+}
+#endif
 
 #define OV02C10_LINK_FREQ_400MHZ	400000000ULL
 #define OV02C10_MCLK_19_2MHZ		19200000
