@@ -53,16 +53,16 @@ else
     PKG_INSTALL=""
 fi
 
-# Check prerequisites: git is needed for firmware download
-if ! command -v git >/dev/null 2>&1; then
-    echo "Installing git (needed to download firmware)..."
+# Check prerequisites: curl is needed for firmware download, git is optional fallback
+if ! command -v curl >/dev/null 2>&1; then
+    echo "Installing curl (needed to download firmware)..."
     if [ -n "$PKG_INSTALL" ]; then
-        $PKG_INSTALL git >/dev/null 2>&1 || {
-            echo "ERROR: Failed to install git. Install manually." >&2
+        $PKG_INSTALL curl >/dev/null 2>&1 || {
+            echo "ERROR: Failed to install curl. Install manually." >&2
             exit 1
         }
     else
-        echo "ERROR: git not installed. Please install it manually." >&2
+        echo "ERROR: curl not installed. Please install it manually." >&2
         exit 1
     fi
 fi
@@ -161,60 +161,76 @@ fi
 TMPDIR=$(mktemp -d)
 trap "rm -rf '$TMPDIR'" EXIT
 
-echo ""
-echo "Downloading latest SOF firmware from linux-firmware repository..."
-echo "(This may take a minute — sparse checkout of firmware files only)"
+FW_PATHS="intel/sof-ipc4 intel/sof-ipc4-lib intel/sof-ace-tplg intel/sof intel/sof-tplg"
 
-cd "$TMPDIR"
-git init -q linux-firmware
-cd linux-firmware
-git remote add origin "$LINUX_FW_REPO"
-
-# Sparse checkout: only pull the SOF firmware directories we need
-git sparse-checkout init
-git sparse-checkout set \
-    "intel/sof-ipc4" \
-    "intel/sof-ipc4-lib" \
-    "intel/sof-ace-tplg" \
-    "intel/sof" \
-    "intel/sof-tplg" \
-    "WHENCE"
-
-echo "Fetching firmware files (depth=1 for speed)..."
-if ! git fetch --depth=1 origin main 2>&1; then
-    echo ""
-    echo "ERROR: git sparse checkout from GitLab failed." >&2
-    echo "       Trying tarball fallback..." >&2
-    echo ""
+# Download via GitLab path-filtered tarball (fast — only downloads the dirs we need)
+download_tarball() (
+    set +e
     cd "$TMPDIR"
     rm -rf linux-firmware
-    TARBALL_URL="https://gitlab.com/kernel-firmware/linux-firmware/-/archive/main/linux-firmware-main.tar.gz?path=intel/sof-ipc4&path=intel/sof-ipc4-lib&path=intel/sof-ace-tplg&path=intel/sof&path=intel/sof-tplg"
-    if curl -fsSL "$TARBALL_URL" | tar xz; then
+    local path_params=""
+    for p in $FW_PATHS; do
+        path_params="${path_params}&path=${p}"
+    done
+    # Strip leading '&'
+    path_params="${path_params:1}"
+    local url="https://gitlab.com/kernel-firmware/linux-firmware/-/archive/main/linux-firmware-main.tar.gz?${path_params}"
+    echo "Downloading firmware via tarball..."
+    if curl -fsSL "$url" | tar xz; then
         # GitLab path-filtered archives extract with a hash suffix
-        EXTRACTED=$(ls -d linux-firmware-main-* 2>/dev/null | head -1)
-        if [ -n "$EXTRACTED" ]; then
-            mv "$EXTRACTED" linux-firmware
+        local extracted
+        extracted=$(ls -d linux-firmware-main-* 2>/dev/null | head -1)
+        if [ -n "$extracted" ]; then
+            mv "$extracted" linux-firmware
+        fi
+        if [ -d "linux-firmware/intel/sof-ipc4" ]; then
+            return 0
         fi
     fi
-    cd linux-firmware 2>/dev/null || {
-        echo "ERROR: Both git and tarball download failed." >&2
-        echo "       Check your internet connection and try again." >&2
-        echo "       If the problem persists, file an issue at:" >&2
-        echo "       https://github.com/Andycodeman/samsung-galaxy-book4-linux-fixes/issues" >&2
-        exit 1
-    }
-else
-    git checkout -q FETCH_HEAD
-fi
+    echo "  Tarball method did not produce expected files" >&2
+    return 1
+)
 
-# Verify we got firmware files
-if [ ! -d "intel/sof-ipc4" ]; then
-    echo "ERROR: Download succeeded but firmware files are missing." >&2
-    echo "       The linux-firmware repository layout may have changed." >&2
-    echo "       Please file an issue at:" >&2
+# Download via git sparse checkout (fallback — downloads more data)
+download_git() (
+    set +e
+    command -v git >/dev/null 2>&1 || { echo "  git not installed, skipping git fallback" >&2; return 1; }
+    cd "$TMPDIR"
+    rm -rf linux-firmware
+    git init -q linux-firmware
+    cd linux-firmware
+    git remote add origin "$LINUX_FW_REPO"
+    git sparse-checkout init
+    git sparse-checkout set $FW_PATHS "WHENCE"
+    echo "Fetching firmware files via git (depth=1)..."
+    if git fetch --depth=1 origin main 2>&1; then
+        git checkout -q FETCH_HEAD
+        if [ -d "intel/sof-ipc4" ]; then
+            return 0
+        fi
+        echo "  git checkout did not produce expected files" >&2
+    fi
+    return 1
+)
+
+echo ""
+echo "Downloading latest SOF firmware from linux-firmware repository..."
+
+# Try tarball first (small, fast), fall back to git sparse checkout
+if download_tarball; then
+    : # success
+elif echo "Tarball download failed, trying git sparse checkout..." >&2 && download_git; then
+    : # success
+else
+    echo "ERROR: Failed to download firmware files." >&2
+    echo "       Check your internet connection and try again." >&2
+    echo "       If the problem persists, file an issue at:" >&2
     echo "       https://github.com/Andycodeman/samsung-galaxy-book4-linux-fixes/issues" >&2
     exit 1
 fi
+
+# Subshell functions don't change parent's cwd
+cd "$TMPDIR/linux-firmware"
 
 # Get the firmware version tag if possible
 FW_COMMIT=$(git log -1 --format="%h %s" 2>/dev/null || echo "tarball download")
