@@ -28,8 +28,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIBCAMERA_MIN_VER="0.4.0"
-LIBCAMERA_BUILD_VER="v0.4.0"
+LIBCAMERA_MIN_VER="0.5.0"
+LIBCAMERA_BUILD_VER="v0.7.0"
 LIBCAMERA_BUILD_DIR="/tmp/libcamera-ipu6-build"
 
 echo "=============================================="
@@ -391,8 +391,8 @@ check_libcamera_version() {
     major=$(echo "$ver" | cut -d. -f1)
     minor=$(echo "$ver" | cut -d. -f2)
 
-    # Need >= 0.4
-    if [[ "$major" -gt 0 ]] || { [[ "$major" -eq 0 ]] && [[ "$minor" -ge 4 ]]; }; then
+    # Need >= 0.5 (Ccm algorithm in SoftISP requires 0.5.0+)
+    if [[ "$major" -gt 0 ]] || { [[ "$major" -eq 0 ]] && [[ "$minor" -ge 5 ]]; }; then
         echo "$ver"
         return 0
     fi
