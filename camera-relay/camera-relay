@@ -210,6 +210,20 @@ detect_gst_plugin_path() {
     return 1
 }
 
+detect_libcamera_lib_path() {
+    local dir
+    for dir in /usr/local/lib/x86_64-linux-gnu \
+               /usr/local/lib64 \
+               /usr/local/lib \
+               /usr/local/lib/aarch64-linux-gnu; do
+        if ls "$dir"/libcamera.so.* &>/dev/null 2>&1; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+
 detect_ipa_path() {
     local path
     for path in /usr/local/lib/x86_64-linux-gnu/libcamera \
@@ -233,6 +247,13 @@ detect_ipa_path() {
 }
 
 setup_environment() {
+    # Source-built libcamera library path (must be set BEFORE gst-inspect
+    # so the GStreamer plugin resolves against our build, not the system one)
+    local lib_path
+    if lib_path=$(detect_libcamera_lib_path); then
+        export LD_LIBRARY_PATH="${lib_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+
     # GStreamer plugin path
     local gst_extra_path
     if gst_extra_path=$(detect_gst_plugin_path); then
@@ -603,9 +624,10 @@ cmd_enable_persistent() {
     fi
 
     # Detect paths for the service environment
-    local ipa_path="" gst_path=""
+    local ipa_path="" gst_path="" lib_path=""
     ipa_path=$(detect_ipa_path 2>/dev/null) || true
     gst_path=$(detect_gst_plugin_path 2>/dev/null) || true
+    lib_path=$(detect_libcamera_lib_path 2>/dev/null) || true
 
     # Create systemd user service
     mkdir -p "$SERVICE_DIR"
@@ -622,6 +644,7 @@ Restart=on-failure
 RestartSec=5
 ${ipa_path:+Environment=LIBCAMERA_IPA_MODULE_PATH=$ipa_path}
 ${gst_path:+Environment=GST_PLUGIN_PATH=$gst_path}
+${lib_path:+Environment=LD_LIBRARY_PATH=$lib_path}
 
 [Install]
 WantedBy=default.target

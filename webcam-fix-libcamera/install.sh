@@ -608,12 +608,14 @@ case "$DISTRO" in
 
         # Check if the installed SPA plugin links against our source-built libcamera
         SPA_SO=$(find /usr/lib -name "libspa-libcamera.so" -path "*/spa-0.2/libcamera/*" 2>/dev/null | head -1)
+        LOCAL_LIBCAMERA=$(ls /usr/local/lib/x86_64-linux-gnu/libcamera.so.0.* \
+                             /usr/local/lib/x86_64-linux-gnu/libcamera.so 2>/dev/null | head -1)
         if [[ -n "$SPA_SO" ]]; then
             SPA_LIBCAMERA_VER=$(ldd "$SPA_SO" 2>/dev/null | grep -oP 'libcamera\.so\.\K[0-9]+\.[0-9]+' | head -1 || true)
             SPA_LIBCAMERA_MINOR=$(echo "$SPA_LIBCAMERA_VER" | cut -d. -f2)
-            if [[ -n "$SPA_LIBCAMERA_MINOR" ]] && [[ "$SPA_LIBCAMERA_MINOR" -lt 4 ]] && \
-               [[ -f /usr/local/lib/x86_64-linux-gnu/libcamera.so.0.4 ]]; then
-                echo "  SPA plugin links against libcamera $SPA_LIBCAMERA_VER (need >= 0.4)"
+            if [[ -n "$SPA_LIBCAMERA_MINOR" ]] && [[ "$SPA_LIBCAMERA_MINOR" -lt 5 ]] && \
+               [[ -n "$LOCAL_LIBCAMERA" ]]; then
+                echo "  SPA plugin links against libcamera $SPA_LIBCAMERA_VER (need >= 0.5)"
                 rebuild_spa_plugin
             else
                 echo "  ✓ PipeWire libcamera SPA plugin ready"
