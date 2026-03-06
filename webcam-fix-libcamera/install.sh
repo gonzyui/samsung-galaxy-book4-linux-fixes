@@ -472,10 +472,42 @@ if check_libcamera_version >/dev/null 2>&1; then
     LIBCAMERA_OK=true
 fi
 
+# Clean up stale /usr/local libcamera builds that are older than the minimum.
+# This can happen if a user previously built libcamera from source (e.g. an
+# older version or an AI-assisted attempt) and later upgraded the system packages
+# to a sufficient version. The stale /usr/local files would shadow the system
+# libraries and GStreamer plugins, causing "Algorithm 'Ccm' not found" failures.
+cleanup_stale_local_libcamera() {
+    local stale_ver
+    stale_ver=$(ls /usr/local/lib/x86_64-linux-gnu/libcamera.so.0.* \
+                   /usr/local/lib/aarch64-linux-gnu/libcamera.so.0.* \
+                   /usr/local/lib64/libcamera.so.0.* \
+                   /usr/local/lib/libcamera.so.0.* 2>/dev/null \
+              | grep -oP 'libcamera\.so\.0\.\K[0-9]+' | sort -n | tail -1)
+    if [[ -z "$stale_ver" ]]; then
+        return
+    fi
+    local min_minor
+    min_minor=$(echo "$LIBCAMERA_MIN_VER" | cut -d. -f2)
+    if [[ "$stale_ver" -lt "$min_minor" ]]; then
+        echo "  ⚠ Removing stale libcamera build (0.$stale_ver) from /usr/local..."
+        for dir in /usr/local/lib/x86_64-linux-gnu /usr/local/lib/aarch64-linux-gnu \
+                   /usr/local/lib64 /usr/local/lib; do
+            sudo rm -f "$dir"/libcamera*.so* 2>/dev/null || true
+            sudo rm -f "$dir"/gstreamer-1.0/libgstlibcamera.so 2>/dev/null || true
+            sudo rm -rf "$dir"/libcamera/ 2>/dev/null || true
+        done
+        sudo rm -rf /usr/local/share/libcamera/ipa/simple 2>/dev/null || true
+        sudo ldconfig
+        echo "  ✓ Stale /usr/local libcamera removed"
+    fi
+}
+
 case "$DISTRO" in
     fedora)
         if $LIBCAMERA_OK; then
             echo "  ✓ libcamera $LIBCAMERA_VER already installed (>= $LIBCAMERA_MIN_VER)"
+            cleanup_stale_local_libcamera
         else
             # Fedora 41+ ships libcamera 0.4+ in repos
             echo "  Installing libcamera from Fedora repos..."
@@ -493,6 +525,7 @@ case "$DISTRO" in
     arch)
         if $LIBCAMERA_OK; then
             echo "  ✓ libcamera $LIBCAMERA_VER already installed (>= $LIBCAMERA_MIN_VER)"
+            cleanup_stale_local_libcamera
         else
             echo "  Installing libcamera from Arch repos..."
             sudo pacman -S --needed --noconfirm libcamera 2>/dev/null || true
@@ -508,6 +541,7 @@ case "$DISTRO" in
     ubuntu|debian)
         if $LIBCAMERA_OK; then
             echo "  ✓ libcamera $LIBCAMERA_VER already installed (>= $LIBCAMERA_MIN_VER)"
+            cleanup_stale_local_libcamera
         else
             if [[ -n "$LIBCAMERA_VER" ]]; then
                 echo "  System libcamera ($LIBCAMERA_VER) is too old (need >= $LIBCAMERA_MIN_VER)."

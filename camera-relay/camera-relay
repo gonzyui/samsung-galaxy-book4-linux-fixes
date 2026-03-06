@@ -203,6 +203,14 @@ detect_gst_plugin_path() {
                /usr/local/lib/gstreamer-1.0 \
                /usr/local/lib/aarch64-linux-gnu/gstreamer-1.0; do
         if [[ -f "$dir/libgstlibcamera.so" ]]; then
+            # Verify plugin links to libcamera >= 0.5 (Ccm algorithm minimum).
+            # A stale plugin linked to an older version would shadow the system one.
+            local linked_minor
+            linked_minor=$(ldd "$dir/libgstlibcamera.so" 2>/dev/null \
+                | grep -oP 'libcamera\.so\.0\.\K[0-9]+' | head -1)
+            if [[ -n "$linked_minor" ]] && [[ "$linked_minor" -lt 5 ]]; then
+                continue
+            fi
             echo "$dir"
             return 0
         fi
@@ -216,7 +224,11 @@ detect_libcamera_lib_path() {
                /usr/local/lib64 \
                /usr/local/lib \
                /usr/local/lib/aarch64-linux-gnu; do
-        if ls "$dir"/libcamera.so.* &>/dev/null 2>&1; then
+        # Only prefer /usr/local if libcamera there is >= 0.5 (Ccm minimum)
+        local ver
+        ver=$(ls "$dir"/libcamera.so.0.* 2>/dev/null \
+            | grep -oP 'libcamera\.so\.0\.\K[0-9]+' | sort -n | tail -1)
+        if [[ -n "$ver" ]] && [[ "$ver" -ge 5 ]]; then
             echo "$dir"
             return 0
         fi
