@@ -14,7 +14,7 @@ To uninstall: `sudo ./uninstall.sh && sudo reboot`
 
 ---
 
-> **Battery Impact:** This workaround keeps the speaker amplifiers powered on at all times (even when not playing audio), which uses an estimated **0.3–0.5W extra** (~3–5% battery life). This is a limitation of the DKMS workaround (not of the upstream driver) — our driver bypasses the HDA playback hooks to avoid needing a kernel recompile. When native kernel support eventually lands (no confirmed timeline yet — see below), proper power management will be handled automatically and this package will auto-remove itself.
+> **Battery Impact:** The speaker amplifiers are only powered on during active audio playback. When idle, the amps draw ~10μA per chip — effectively zero battery impact. The driver uses HDA playback hooks to enable the amps when audio starts and disable them when it stops. When native kernel support eventually lands (no confirmed timeline yet — see below), this package will auto-remove itself.
 
 > **Secure Boot Users:** If you have Secure Boot enabled (most laptops do by default), you **must** enroll a Machine Owner Key (MOK) before the driver modules will load. If you've never installed a DKMS or out-of-tree kernel module before, you will need to complete a **one-time MOK enrollment** that involves a reboot and typing a password in a blue setup screen. See the [Secure Boot Setup](#secure-boot-setup) section below — **do this before running the install script**.
 
@@ -152,16 +152,18 @@ The upstream PR (#5616) touches 5 areas of the kernel:
 This DKMS package only implements #5 (the new driver) and works around #1-#4:
 
 - **Instead of scan.c + serial-multi-instantiate**: A systemd service dynamically finds the I2C bus via ACPI and creates the missing I2C devices via sysfs `new_device`
-- **Instead of the alc269 quirk**: The driver enables amps during `probe()` (sets `GLOBAL_EN=1`, `SPK_EN=0x81`) rather than relying on HDA playback hooks
+- **Instead of the alc269 quirk**: The driver binds as an HDA component and uses playback hooks to enable/disable the amps on demand
 - **Instead of the exported regmap**: A local `regmap_config` with `REGCACHE_NONE` is defined in the driver headers
 
-### Always-On Amps
+### Power Management
 
-Because the alc269 quirk isn't applied, the HDA component master is never created, so playback hooks don't fire. The amps are instead initialized to "always on" during probe. This means:
+The driver uses HDA playback hooks to control the amplifiers:
 
-- Speakers work immediately with no dependency on the HDA codec driver
-- The amps consume ~0.3-0.5W when idle (roughly 3-5% battery impact)
-- When the upstream fix eventually lands, the playback hooks will properly power-manage the amps
+- **Playback starts** (`HDA_GEN_PCM_ACT_OPEN`) → amps enable (`GLOBAL_EN=0x01`, `AMP_EN=0x81`)
+- **Playback stops** (`HDA_GEN_PCM_ACT_CLOSE`) → amps disable (`GLOBAL_EN=0x00`, `AMP_EN=0x80`)
+- **On init** → amps start in disabled state (no power draw until audio plays)
+
+The MAX98390 draws ~10μA per chip in disabled state — effectively zero battery impact when idle.
 
 ### I2C Bus Detection
 
