@@ -680,6 +680,57 @@ echo ""
 apply_patch_sed
 echo ""
 
+# Step 4b: Add OV02E10 sensor helper (fixes greyish/washed-out colors)
+# Without this, the software ISP uses generic auto-exposure defaults.
+# The OV02E10 has the same linear analog gain model as OV02C10: gain = value/16.
+info "Adding OV02E10 sensor helper..."
+HELPER_FILE=""
+for candidate in "$BUILD_DIR/libcamera/src/ipa/libipa/camera_sensor_helper.cpp" \
+                 "$BUILD_DIR/libcamera/src/libcamera/sensor/camera_sensor_helper.cpp"; do
+    if [[ -f "$candidate" ]]; then
+        HELPER_FILE="$candidate"
+        break
+    fi
+done
+if [[ -n "$HELPER_FILE" ]] && ! grep -q "CameraSensorHelperOv02e10" "$HELPER_FILE"; then
+    if grep -q "namespace ipa" "$HELPER_FILE"; then
+        # v0.7.0+ format
+        sed -i '/#endif.*__DOXYGEN__/i\
+class CameraSensorHelperOv02e10 : public CameraSensorHelper\
+{\
+public:\
+\tCameraSensorHelperOv02e10()\
+\t{\
+\t\tgain_ = AnalogueGainLinear{ 1, 0, 0, 16 };\
+\t}\
+};\
+REGISTER_CAMERA_SENSOR_HELPER("ov02e10", CameraSensorHelperOv02e10)\
+' "$HELPER_FILE"
+    else
+        # Pre-0.7.0 format
+        cat >> "$HELPER_FILE" << 'HELPER_EOF'
+
+class CameraSensorHelperOv02e10 : public CameraSensorHelper
+{
+public:
+	CameraSensorHelperOv02e10()
+	{
+		gainType_ = AnalogueGainLinear;
+		gainConstants_.linear = { 1, 0, 0, 16 };
+	}
+};
+REGISTER_CAMERA_SENSOR_HELPER("ov02e10", CameraSensorHelperOv02e10)
+HELPER_EOF
+    fi
+    ok "OV02E10 sensor helper added (auto-exposure + gain control)"
+elif [[ -n "$HELPER_FILE" ]]; then
+    ok "OV02E10 sensor helper already present"
+else
+    warn "Could not find camera_sensor_helper.cpp — sensor helper not added"
+    warn "Auto-exposure may produce washed-out colors"
+fi
+echo ""
+
 # Step 5: Verify patch
 info "Verifying patch..."
 if grep -q 'inputBayer.order' "$BUILD_DIR/libcamera/src/libcamera/pipeline/simple/simple.cpp"; then
