@@ -387,11 +387,11 @@ DMI_VENDOR=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
 DMI_PRODUCT=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
 if [[ "$DMI_VENDOR" == "SAMSUNG ELECTRONICS CO., LTD." ]]; then
     case "$DMI_PRODUCT" in
-        940XHA|960XHA) NEEDS_ROTATION_FIX=true ;;
+        940XHA|960XHA|960QHA) NEEDS_ROTATION_FIX=true ;;
     esac
 fi
 
-IPU_BRIDGE_FIX_VER="1.0"
+IPU_BRIDGE_FIX_VER="1.1"
 IPU_BRIDGE_FIX_SRC="/usr/src/ipu-bridge-fix-${IPU_BRIDGE_FIX_VER}"
 
 if $NEEDS_ROTATION_FIX; then
@@ -419,10 +419,13 @@ if $NEEDS_ROTATION_FIX; then
         if $UPSTREAM_HAS_FIX; then
             echo "  ✓ Native kernel ipu-bridge already has Samsung rotation fix — skipping DKMS"
         else
-            # Remove old DKMS version if present
-            if dkms status "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}" 2>/dev/null | grep -q "ipu-bridge-fix"; then
-                sudo dkms remove "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}" --all 2>/dev/null || true
-            fi
+            # Remove any old DKMS version before installing
+            for old_ver in "1.0" "${IPU_BRIDGE_FIX_VER}"; do
+                if dkms status "ipu-bridge-fix/${old_ver}" 2>/dev/null | grep -q "ipu-bridge-fix"; then
+                    sudo dkms remove "ipu-bridge-fix/${old_ver}" --all 2>/dev/null || true
+                fi
+                sudo rm -rf "/usr/src/ipu-bridge-fix-${old_ver}" 2>/dev/null || true
+            done
 
             # Copy source to DKMS tree
             sudo rm -rf "$IPU_BRIDGE_FIX_SRC"
@@ -476,7 +479,7 @@ SIGNEOF
     echo "  ✓ Upstream check service enabled (auto-removes fix when kernel catches up)"
 
 else
-    echo "  ✓ Not a Samsung 940XHA/960XHA — rotation fix not needed"
+    echo "  ✓ Not a Samsung 940XHA/960XHA/960QHA — rotation fix not needed"
 fi
 
 # ──────────────────────────────────────────────
@@ -735,7 +738,7 @@ if [[ -d "$RELAY_DIR" ]]; then
             sudo dnf install -y gstreamer1-plugins-bad-free-extras 2>/dev/null || \
             sudo dnf install -y gstreamer1-plugins-bad-free 2>/dev/null || true
         elif [[ "$DISTRO" == "arch" ]]; then
-            sudo pacman -S --needed --noconfirm gst-plugins-bad 2>/dev/null || true
+            sudo pacman -S --needed --noconfirm gst-plugin-libcamera 2>/dev/null || true
         elif [[ "$DISTRO" == "ubuntu" ]]; then
             sudo apt install -y gstreamer1.0-plugins-bad 2>/dev/null || true
         fi
@@ -901,7 +904,7 @@ echo ""
 echo "  Known issues:"
 echo "    - Color quality: A light color correction profile is installed, but image"
 echo "      quality may not match Windows. Full sensor calibration is pending upstream."
-echo "    - Vertically flipped image: Fixed on Samsung 940XHA/960XHA via ipu-bridge"
+echo "    - Vertically flipped image: Fixed on Samsung 940XHA/960XHA/960QHA via ipu-bridge"
 echo "      DKMS patch. Other models may still be affected."
 echo "    - Only one app can use the camera at a time (libcamera limitation)."
 echo "      Close the first app before opening another. Use 'camera-relay' if you"

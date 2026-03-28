@@ -7,7 +7,7 @@ set -e
 
 VISION_DRIVER_VER="1.0.0"
 SRC_DIR="/usr/src/vision-driver-${VISION_DRIVER_VER}"
-IPU_BRIDGE_FIX_VER="1.0"
+IPU_BRIDGE_FIX_VER="1.1"
 IPU_BRIDGE_FIX_SRC="/usr/src/ipu-bridge-fix-${IPU_BRIDGE_FIX_VER}"
 
 echo "=============================================="
@@ -40,15 +40,18 @@ fi
 
 # [3/11] Remove ipu-bridge-fix DKMS module (camera rotation fix)
 echo "[3/11] Removing ipu-bridge-fix DKMS module..."
-if dkms status "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}" 2>/dev/null | grep -q "ipu-bridge-fix"; then
-    sudo dkms remove "ipu-bridge-fix/${IPU_BRIDGE_FIX_VER}" --all 2>/dev/null || true
+IPU_BRIDGE_REMOVED=false
+for ver in "$IPU_BRIDGE_FIX_VER" "1.0"; do
+    if dkms status "ipu-bridge-fix/${ver}" 2>/dev/null | grep -q "ipu-bridge-fix"; then
+        sudo dkms remove "ipu-bridge-fix/${ver}" --all 2>/dev/null || true
+        IPU_BRIDGE_REMOVED=true
+    fi
+    [[ -d "/usr/src/ipu-bridge-fix-${ver}" ]] && sudo rm -rf "/usr/src/ipu-bridge-fix-${ver}"
+done
+if $IPU_BRIDGE_REMOVED; then
     echo "  ✓ DKMS module removed"
 else
     echo "  ✓ DKMS module not installed (nothing to remove)"
-fi
-if [[ -d "$IPU_BRIDGE_FIX_SRC" ]]; then
-    sudo rm -rf "$IPU_BRIDGE_FIX_SRC"
-    echo "  ✓ Removed ${IPU_BRIDGE_FIX_SRC}"
 fi
 # Remove upstream check script and service
 sudo systemctl disable ipu-bridge-check-upstream.service 2>/dev/null || true

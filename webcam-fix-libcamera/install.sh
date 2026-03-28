@@ -1089,7 +1089,7 @@ if [[ -d "$RELAY_DIR" ]]; then
                 sudo dnf install -y gstreamer1-plugins-bad-free 2>/dev/null || true
                 ;;
             arch)
-                sudo pacman -S --needed --noconfirm gst-plugins-bad 2>/dev/null || true
+                sudo pacman -S --needed --noconfirm gst-plugin-libcamera 2>/dev/null || true
                 ;;
             ubuntu|debian)
                 sudo apt-get install -y gstreamer1.0-plugins-bad 2>/dev/null || true
