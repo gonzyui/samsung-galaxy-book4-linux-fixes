@@ -199,7 +199,7 @@ Thanks to the following users for their contributions and testing:
 
 ## NixOS
 
-NixOS users can use the declarative Nix modules in [`nixos/`](nixos/) instead of the DKMS install scripts. Import `nixos/samsung-speaker-fix.nix` in your `configuration.nix` and run `nixos-rebuild switch` — it builds the kernel modules from source, loads them at boot, and sets up I2C amplifier detection via systemd. See the module files for details. Contributed by [@pagliarinilucas](https://github.com/pagliarinilucas).
+NixOS users can use the declarative Nix modules in [`nixos/`](nixos/) instead of the install scripts. Import `nixos/samsung-speaker-fix.nix` for the speaker fix, `nixos/webcam-fix-libcamera.nix` for the Book3/Book4 webcam fix, and `nixos/webcam-fix-book5.nix` for the Book5 webcam fix, then run `nixos-rebuild switch`. The speaker module builds the kernel modules from source, loads them at boot, and sets up I2C amplifier detection via systemd. The webcam modules load the camera stack early, install the relay or IPU7 module configuration, hide raw V4L2 nodes in WirePlumber, and start the camera services. See the module files for details. Contributed by [@pagliarinilucas](https://github.com/pagliarinilucas).
 
 ## License
 
