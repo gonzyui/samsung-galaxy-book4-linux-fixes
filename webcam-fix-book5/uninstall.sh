@@ -130,17 +130,18 @@ fi
 echo "[10/11] Removing camera relay tool..."
 _relay_user=$(loginctl list-sessions --no-legend 2>/dev/null \
     | awk '$4 == "seat0" {print $3}' | head -1)
+_relay_home=$(getent passwd "$_relay_user" | cut -d: -f6)
 
 # Remove bundled icons
 if [[ -n "$_relay_user" ]]; then
-    ICON_DIR="/home/${_relay_user}/.local/share/icons/hicolor/symbolic/apps"
+    ICON_DIR="${_relay_home}/.local/share/icons/hicolor/symbolic/apps"
     for icon in camera-disabled-symbolic camera-switch-symbolic camera-video-symbolic; do
         sudo -u "$_relay_user" rm -f "${ICON_DIR}/${icon}.svg" \
             && echo "✓ Removed ${icon}.svg" || true
     done
     sudo -u "$_relay_user" \
         gtk-update-icon-cache -f -t \
-        "/home/${_relay_user}/.local/share/icons/hicolor" 2>/dev/null \
+        "${_relay_home}/.local/share/icons/hicolor" 2>/dev/null \
         && echo "✓ GTK icon cache updated" \
         || echo "gtk-update-icon-cache failed — stale icons may linger until next login"
 else
@@ -151,14 +152,13 @@ if [[ -x /usr/local/bin/camera-relay ]]; then
     /usr/local/bin/camera-relay stop 2>/dev/null || true
 fi
 # Disable persistent mode for all users
-for user_home in /home/*; do
-    service_file="$user_home/.config/systemd/user/camera-relay.service"
+while IFS=: read -r user _ _ _ _ home _; do
+    service_file="$home/.config/systemd/user/camera-relay.service"
     if [[ -f "$service_file" ]]; then
-        user=$(basename "$user_home")
         sudo -u "$user" systemctl --user disable camera-relay.service 2>/dev/null || true
         rm -f "$service_file"
     fi
-done
+done < <(getent passwd)
 sudo rm -f /usr/local/bin/camera-relay
 sudo rm -f /usr/local/bin/camera-relay-monitor
 sudo rm -rf /usr/local/share/camera-relay
@@ -170,7 +170,7 @@ if [[ -f /etc/modprobe.d/99-camera-relay-loopback.conf ]] && \
     sudo rm -f /etc/modules-load.d/v4l2loopback.conf
     # Fedora: rebuild initramfs so dracut doesn't load v4l2loopback with stale config
     if command -v dracut &>/dev/null; then
-        echo "  Rebuilding initramfs to remove v4l2loopback config..."
+        echo "  Rebuilding initramfs to remove v4l2loopback config deferred until the end of the script..."
         sudo dracut --regenerate-all -f 2>/dev/null || true
     fi
 fi
