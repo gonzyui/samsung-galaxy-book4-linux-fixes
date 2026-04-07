@@ -37,17 +37,18 @@ rm -f "${HOME}/.config/systemd/user/camera-relay.service" 2>/dev/null || true
 
 _relay_user=$(loginctl list-sessions --no-legend 2>/dev/null \
     | awk '$4 == "seat0" {print $3}' | head -1)
+_relay_home=$(getent passwd "$_relay_user" | cut -d: -f6)
 
 # Remove bundled icons
 if [[ -n "$_relay_user" ]]; then
-    ICON_DIR="/home/${_relay_user}/.local/share/icons/hicolor/symbolic/apps"
+    ICON_DIR="${_relay_home}/.local/share/icons/hicolor/symbolic/apps"
     for icon in camera-disabled-symbolic camera-switch-symbolic camera-video-symbolic; do
         sudo -u "$_relay_user" rm -f "${ICON_DIR}/${icon}.svg" \
             && echo "✓ Removed ${icon}.svg" || true
     done
     sudo -u "$_relay_user" \
         gtk-update-icon-cache -f -t \
-        "/home/${_relay_user}/.local/share/icons/hicolor" 2>/dev/null \
+        "${_relay_home}/.local/share/icons/hicolor" 2>/dev/null \
         && echo "✓ GTK icon cache updated" \
         || echo "gtk-update-icon-cache failed — stale icons may linger until next login"
 else

@@ -1072,6 +1072,7 @@ echo "[13/14] Installing camera relay tool..."
 # ── Detect active session ─────────────────────────────────────────────────────
 _relay_user=$(loginctl list-sessions --no-legend 2>/dev/null \
     | awk '$4 == "seat0" {print $3}' | head -1)
+_relay_home=$(getent passwd "$_relay_user" | cut -d: -f6)
 
 RELAY_DIR="$SCRIPT_DIR/../camera-relay"
 
@@ -1185,7 +1186,7 @@ if [[ -d "$RELAY_DIR" ]]; then
         echo "  ⚠ Could not enable persistent relay — run 'camera-relay enable-persistent' after reboot"
 
     if [[ -n "$_relay_user" ]]; then
-        ICON_DEST="/home/${_relay_user}/.local/share/icons/hicolor/symbolic/apps"
+        ICON_DEST="${_relay_home}/.local/share/icons/hicolor/symbolic/apps"
         sudo -u "$_relay_user" mkdir -p "$ICON_DEST"
         for icon in camera-disabled-symbolic camera-switch-symbolic camera-video-symbolic; do
             if [[ -f "$RELAY_DIR/yaru-icons/${icon}.svg" ]]; then
@@ -1197,7 +1198,7 @@ if [[ -d "$RELAY_DIR" ]]; then
         done
         sudo -u "$_relay_user" \
             gtk-update-icon-cache -f -t \
-            "/home/${_relay_user}/.local/share/icons/hicolor" 2>/dev/null \
+            "${_relay_home}/.local/share/icons/hicolor" 2>/dev/null \
             && echo "✓ GTK icon cache updated" \
             || echo "gtk-update-icon-cache failed — icons may not appear until next login"
     else
