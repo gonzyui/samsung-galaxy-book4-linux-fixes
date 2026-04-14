@@ -393,7 +393,7 @@ DMI_VENDOR=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
 DMI_PRODUCT=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
 if [[ "$DMI_VENDOR" == "SAMSUNG ELECTRONICS CO., LTD." ]]; then
     case "$DMI_PRODUCT" in
-        940XFG|960XFG|960XGL|960QFG|960QGK) NEEDS_ROTATION_FIX=true ;;
+        940XFG|940XGK|960XFG|960XGL|960QFG|960QGK) NEEDS_ROTATION_FIX=true ;;
     esac
 fi
 
