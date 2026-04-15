@@ -161,20 +161,20 @@ KMAJOR=$(echo "$KVER" | cut -d. -f1)
 KMINOR=$(echo "$KVER" | cut -d. -f2)
 
 if [[ "$KMAJOR" -lt 6 ]] || { [[ "$KMAJOR" -eq 6 ]] && [[ "$KMINOR" -lt 17 ]]; }; then
-    echo "ERROR: Kernel ${KVER} is too old. IPU7 webcam support requires kernel 6.18+."
+    echo "ERROR: Kernel ${KVER} is too old. IPU7 webcam support requires kernel 6.17+."
     echo ""
-    echo "       Kernel 6.18 includes in-tree IPU7, USBIO, and OV02C10 drivers."
+    echo "       Kernel 6.17 includes in-tree IPU7, USBIO, and OV02C10 drivers."
     if [[ "$DISTRO" == "arch" ]]; then
         echo "       Update your kernel: sudo pacman -Syu"
     elif [[ "$DISTRO" == "fedora" ]]; then
         echo "       Update your kernel: sudo dnf upgrade --refresh"
     else
-        echo "       Ubuntu 24.04 ships kernel 6.17. You need to compile 6.18+ from source"
-        echo "       or install a mainline kernel build."
+        echo "       Ubuntu 24.04 ships kernel 6.8. Upgrade to 25.10 (ships 6.17) or"
+        echo "       install a mainline kernel build."
     fi
     exit 1
 fi
-echo "  ✓ Kernel ${KVER} (>= 6.18 required)"
+echo "  ✓ Kernel ${KVER} (>= 6.17 required)"
 
 # ──────────────────────────────────────────────
 # [5/15] Install distro packages
